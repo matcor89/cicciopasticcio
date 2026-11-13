@@ -99,12 +99,12 @@
     const items = [
       ['Shopify', st.shopify], ['Meta Ads', st.meta_ads], ['Instagram', st.instagram],
       ['Gmail', st.google], ['Calendario', st.google], ['Promemoria', st.google],
-      ['Note', true], ['WhatsApp', st.whatsapp],
+      ['Note', true],
     ];
     $('chips').innerHTML = items.map(([n, on]) => `<span class="chip ${on ? 'on' : ''}"><span class="dot"></span>${n}</span>`).join('');
     const names = {
       claude: 'Claude (cervello)', pin: 'PIN', voice_azure: 'Voce Azure', google: 'Google', shopify: 'Shopify',
-      meta_ads: 'Meta Ads', instagram: 'Instagram', whatsapp: 'WhatsApp', webhook_ready: 'Messaggi in arrivo (webhook)',
+      meta_ads: 'Meta Ads', instagram: 'Instagram', webhook_ready: 'Messaggi Instagram (webhook)',
     };
     $('status-list').innerHTML = Object.entries(names)
       .map(([k, n]) => `<div class="row"><span>${n}</span><b style="color:${st[k] ? 'var(--ok)' : 'var(--muted)'}">${st[k] ? 'collegato' : 'da fare'}</b></div>`).join('');
@@ -159,21 +159,35 @@
       ? `<div class="body list">${gm.items.length ? gm.items.map((m) => `<div><div class="item-title">${esc(m.from)}</div><div class="muted">${esc(m.subject)}</div></div>`).join('') : '<div class="off">Nessuna email nuova</div>'}</div>`
       : `<div class="body">${off(gm, 'Google')}</div>`;
 
-    const wa = d.whatsapp;
-    $('wa-count').textContent = has(wa) ? (wa.waiting ? `${wa.waiting} in attesa` : 'tutto risposto') : '';
-    $('p-wa').querySelector('.body').outerHTML = has(wa) && lastStatus.whatsapp
-      ? `<div class="body list">${wa.items.length ? wa.items.map((c) => `<div class="box"><div class="item-title">${esc(c.name)}: «${esc(c.text)}»</div><div style="margin-top:8px"><button class="mini-btn primary" data-reply-wa="${esc(c.name)}">Prepara risposta</button></div></div>`).join('') : '<div class="off">Nessun cliente in attesa</div>'}</div>`
-      : `<div class="body">${off(has(wa) ? { error: 'non collegato' } : wa, 'WhatsApp')}</div>`;
-
     pendingList = Array.isArray(d.pending) ? d.pending : pendingList;
     renderPending();
 
-    if (d.spend) {
-      const t = `Spesa del mese: ${d.spend.month_usd.toLocaleString('it-IT', { minimumFractionDigits: 2 })} $ su ${d.spend.budget_usd} $`;
-      $('spend').textContent = t;
-      $('spend-detail').textContent = t;
-    }
+    renderSpend(d.spend);
     $('updated').textContent = `Aggiornato alle ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+  }
+
+  const euro = (n) => Number(n || 0).toLocaleString('it-IT', { style: 'currency', currency: 'EUR' });
+  function renderSpend(s) {
+    const box = $('p-spend').querySelector('.body');
+    $('spend-month').textContent = new Date().toLocaleDateString('it-IT', { month: 'long' });
+    if (!has(s)) { box.outerHTML = `<div class="body">${off(s, 'Contatore')}</div>`; $('spend-detail').textContent = ''; return; }
+    const pct = Math.min(100, s.budget_eur ? (s.month_eur / s.budget_eur) * 100 : 0);
+    const cls = pct >= 100 ? 'full' : pct >= 80 ? 'warn' : '';
+    const now = new Date();
+    const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const forecast = now.getDate() > 2 ? (s.month_eur / now.getDate()) * days : null;
+    box.outerHTML = `<div class="body">
+      <div class="spend-top"><b>${euro(s.month_eur)}</b><span>su ${euro(s.budget_eur)}</span></div>
+      <div class="bar ${cls}" role="progressbar" aria-label="Spesa del mese" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}"><span style="width:${pct.toFixed(1)}%"></span></div>
+      <div class="list" style="margin-top:10px">
+        <div class="row"><span>Restano</span><b>${euro(Math.max(0, s.budget_eur - s.month_eur))}</b></div>
+        <div class="row"><span>Oggi</span><b>${euro(s.today_eur)}</b></div>
+        <div class="row"><span>Richieste nel mese</span><b>${s.requests}</b></div>
+        ${forecast != null ? `<div class="row"><span>Previsione a fine mese</span><b>${euro(forecast)}</b></div>` : ''}
+      </div>
+      ${pct >= 100 ? '<div class="foot">Tetto raggiunto: Cicciopasticcio riparte il primo del mese.</div>' : pct >= 80 ? '<div class="foot">Sei oltre l\'80% del tetto mensile.</div>' : ''}
+    </div>`;
+    $('spend-detail').textContent = `${euro(s.month_eur)} spesi su ${euro(s.budget_eur)} questo mese (${s.requests} richieste).`;
   }
 
   async function refresh() {
@@ -201,7 +215,6 @@
   document.addEventListener('click', (e) => {
     const c = e.target.closest('[data-confirm]'); if (c) return doConfirm(c.dataset.confirm, false);
     const x = e.target.closest('[data-cancel]'); if (x) return doConfirm(x.dataset.cancel, true);
-    const w = e.target.closest('[data-reply-wa]'); if (w) return ask(`Prepara una risposta WhatsApp per ${w.dataset.replyWa}`);
     const q = e.target.closest('[data-q]'); if (q) return ask(q.dataset.q);
   });
 
@@ -238,7 +251,7 @@
         await V.speak(r.reply, () => setState('speaking'));
       }
       setState('idle');
-      if (/(promemoria|nota|taccuino|agenda|evento)/i.test(text)) setTimeout(refresh, 800);
+      setTimeout(refresh, 800);
     } catch (e) {
       busy = false;
       $('reply').textContent = `C'è stato un problema: ${e.message}`;

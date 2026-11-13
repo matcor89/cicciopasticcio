@@ -133,3 +133,12 @@ footer.bottom { padding: 6px 28px 16px; font-size: 12px; color: #8EA6D2; display
   .center { order: -1; }
 }
 @media (max-width: 760px) { #chips { display: none; } }
+
+/* ---------- spesa ---------- */
+.spend-top { display: flex; align-items: baseline; gap: 8px; }
+.spend-top b { font-size: 24px; font-weight: 600; }
+.spend-top span { font-size: 13px; color: var(--muted); }
+.bar { margin-top: 10px; height: 10px; border-radius: 999px; background: #0A1838; border: 1px solid var(--line); overflow: hidden; }
+.bar span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #3B82F6, #8CC3FF); transition: width .6s ease; }
+.bar.warn span { background: linear-gradient(90deg, #F59E0B, #FBBF24); }
+.bar.full span { background: linear-gradient(90deg, #EF4444, #F87171); }
