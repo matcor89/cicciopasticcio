@@ -141,6 +141,7 @@
       start();
     };
     L.onError = (m) => { if (V.onError) V.onError(m); };
+    L.onGesture = (need) => { if (V.onGesture) V.onGesture(need); };
     V.wakeMode = 'local';
     return true;
   };

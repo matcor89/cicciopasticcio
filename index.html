@@ -102,6 +102,17 @@
   </div>
   <label class="toggle">Ascolto «Hey Cicciopasticcio» <input type="checkbox" id="opt-wake"></label>
   <label class="toggle">Risposte a voce <input type="checkbox" id="opt-voice"></label>
+  <h3>PAROLA DI ATTIVAZIONE</h3>
+  <div class="status-list" id="wake-status"></div>
+  <button class="mini-btn primary" id="btn-teach">Insegna la parola «Hey Cicciopasticcio»</button>
+  <label class="toggle" id="row-sens">Sensibilità
+    <select id="opt-sens" aria-label="Sensibilità della parola di attivazione">
+      <option value="alta">Alta</option>
+      <option value="normale">Normale</option>
+      <option value="bassa">Bassa</option>
+    </select>
+  </label>
+  <button class="mini-btn" id="btn-unteach">Cancella la parola insegnata</button>
   <h3>COLLEGAMENTI</h3>
   <div class="status-list" id="status-list"></div>
   <button class="mini-btn" id="btn-google">Collega Google (Gmail, Calendario, Promemoria)</button>
@@ -112,11 +123,16 @@
   <button class="mini-btn" id="btn-logout">Esci da questo dispositivo</button>
 </aside>
 
+<div class="overlay hidden" id="teach">
+  <div class="card teach" id="teach-card" role="dialog" aria-modal="true" aria-label="Insegna la parola"></div>
+</div>
+
 <div class="toast hidden" id="toast" role="status"></div>
 
 <script src="config.js"></script>
 <script src="sphere.js"></script>
 <script src="wake-local.js"></script>
+<script src="wake-train.js"></script>
 <script src="voice.js"></script>
 <script src="app.js"></script>
 </body>

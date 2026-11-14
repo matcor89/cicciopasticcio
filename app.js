@@ -282,6 +282,10 @@
   V.onInterim = (t) => { $('said').textContent = `«${t}»`; };
   V.onCommand = (t) => ask(t);
   V.onError = (m) => toast(m, 6000);
+  V.onGesture = (need) => {
+    if (need) { $('hint').textContent = 'Tocca lo schermo una volta per attivare «Hey Cicciopasticcio»'; toast('Tocca lo schermo una volta per attivare «Hey Cicciopasticcio»', 6000); }
+    else setHint(V.wakeMode === 'local');
+  };
 
   // ---------- foto ----------
   function clearAttach() { attachUrl = null; $('attach-chip').classList.add('hidden'); }
@@ -318,12 +322,64 @@
   // ---------- impostazioni ----------
   $('btn-settings').addEventListener('click', () => $('drawer').classList.remove('hidden'));
   $('drawer-x').addEventListener('click', () => $('drawer').classList.add('hidden'));
-  $('opt-wake').addEventListener('change', (e) => { LS.set('ciccio_wake', e.target.checked); V.setWake(e.target.checked); setState('idle'); });
+  $('opt-wake').addEventListener('change', (e) => { LS.set('ciccio_wake', e.target.checked); if (e.target.checked) reloadWake(); else { V.setWake(false); setState('idle'); } });
   $('opt-voice').addEventListener('change', (e) => { LS.set('ciccio_voice', e.target.checked); V.voiceEnabled = e.target.checked; if (!e.target.checked) V.stopSpeaking(); });
   $('btn-google').addEventListener('click', () => { window.location.href = `${API}/google/start?t=${encodeURIComponent(token)}`; });
   $('btn-meta').addEventListener('click', async () => {
     try { const r = await api.subscribe(); toast(`Fatto: ${r.message}`); } catch (e) { toast(e.message, 6000); }
   });
+  // ---------- parola di attivazione sul dispositivo ----------
+  const WL = window.CiccioWakeLocal;
+  function setHint(local) {
+    if (!V.supported) { $('hint').textContent = 'Per la voce apri Cicciopasticcio con Google Chrome'; return; }
+    $('hint').textContent = local
+      ? 'Parola riconosciuta sul dispositivo · di\' «Hey Cicciopasticcio», aspetta il bip e parla'
+      : 'Di\' «Hey Cicciopasticcio», tocca la sfera o premi Ctrl + M';
+  }
+  function wakeStatus() {
+    const info = WL.savedInfo();
+    if (info) {
+      const d = new Date(info.created).toLocaleDateString('it-IT', { day: 'numeric', month: 'long' });
+      $('wake-status').innerHTML = `<div>● Riconosciuta <b>sul dispositivo</b> · insegnata il ${esc(d)}</div><div class="muted">Prima della parola non esce nessun audio dal Chromebook.</div>`;
+      $('btn-teach').textContent = 'Insegna di nuovo la parola';
+    } else {
+      $('wake-status').innerHTML = '<div>○ Ora la parola la riconosce Chrome.</div><div class="muted">Insegnala per farla riconoscere direttamente sul Chromebook: ci vogliono 5 minuti.</div>';
+      $('btn-teach').textContent = 'Insegna la parola «Hey Cicciopasticcio»';
+    }
+    $('row-sens').classList.toggle('hidden', !info);
+    $('btn-unteach').classList.toggle('hidden', !info);
+    $('opt-sens').value = WL.sensitivity();
+    $('btn-teach').disabled = !V.supported;
+  }
+  function reloadWake() {
+    const wake = LS.get('ciccio_wake', true) && V.supported;
+    V.setWake(false);
+    V.wakeMode = 'chrome';
+    V.initLocalWake().then((local) => {
+      if (wake) V.setWake(true);
+      setState('idle');
+      setHint(local);
+      wakeStatus();
+    });
+  }
+  $('btn-teach').addEventListener('click', () => {
+    $('drawer').classList.add('hidden');
+    window.CiccioTeach.open({
+      onBegin: () => { V.stopSpeaking(); V.cancel(); V.setWake(false); setState('idle'); },
+      onEnd: (saved) => {
+        reloadWake();
+        if (saved) toast('Parola salvata: ora Cicciopasticcio la riconosce sul Chromebook', 5000);
+      },
+    });
+  });
+  $('opt-sens').addEventListener('change', (e) => { WL.sensitivity(e.target.value); toast(`Sensibilità: ${e.target.selectedOptions[0].textContent}`); });
+  $('btn-unteach').addEventListener('click', () => {
+    if (!window.confirm('Cancellare la parola insegnata? Tornerà a riconoscerla Chrome.')) return;
+    WL.deleteModel();
+    reloadWake();
+    toast('Parola cancellata: ora la riconosce Chrome');
+  });
+
   $('btn-logout').addEventListener('click', async () => {
     try { await api.logout(); } catch (_) { /* ignore */ }
     V.setWake(false);
@@ -339,15 +395,15 @@
     $('opt-wake').disabled = !V.supported;
     $('opt-voice').checked = voice;
     V.voiceEnabled = voice;
+    setHint(false);
+    wakeStatus();
     if (wake && V.supported) {
       V.initLocalWake().then((local) => {
         V.setWake(true);
         setState('idle');
-        if (local) $('hint').textContent = 'Parola riconosciuta sul dispositivo · di\' «Hey Cicciopasticcio» o premi Ctrl + M';
+        setHint(local);
       });
     }
-    if (!V.supported) $('hint').textContent = 'Per la voce apri Cicciopasticcio con Google Chrome';
-    else $('hint').textContent = 'Di\' «Hey Cicciopasticcio», tocca la sfera o premi Ctrl + M';
     setState('idle');
     refresh();
     clearInterval(startApp._t);
