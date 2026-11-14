@@ -42,7 +42,7 @@
       const dot = rr() < 0.4;
       const tx = rr() * 180, ty = rr() * 180;
       const wrap = el('span', 'ring-wrap', `inset:${inset.toFixed(1)}%;transform:rotateX(${tx.toFixed(1)}deg) rotateY(${ty.toFixed(1)}deg);`);
-      const ring = el('span', 'ring', `border:${bw}px ${bs} ${c};border-top-color:${top};border-left-color:${left};${glow}animation-name:${ANIMS[i % 4]};animation-direction:${dir};--dur:${base.toFixed(1)}s;`);
+      const ring = el('span', 'ring', `border:${bw}px ${bs} ${c};border-top-color:${top};border-left-color:${left};${glow}animation-name:${ANIMS[i % 4]};animation-direction:${dir};animation-duration:${base.toFixed(1)}s;`);
       if (dot) ring.appendChild(el('span', 'orbit-dot'));
       wrap.appendChild(ring);
       scene.appendChild(wrap);
@@ -51,7 +51,7 @@
     // gusci di frammenti di luce
     function shell(n, seed, R, anim, dur, dir) {
       const r = rng(seed);
-      const sh = el('span', 'shell', `animation-name:${anim};animation-direction:${dir};--dur:${dur}s;`);
+      const sh = el('span', 'shell', `animation-name:${anim};animation-direction:${dir};animation-duration:${dur}s;`);
       for (let i = 0; i < n; i++) {
         const w = (3 + r() * 16) * scale, h = r() < 0.8 ? 1.5 : 2.5;
         const lo = r() * 360, la = Math.asin(2 * r() - 1) * 180 / Math.PI;
@@ -69,7 +69,7 @@
 
     // pannelli "dati"
     const rp = rng(21);
-    const ps = el('span', 'shell', 'animation-name:cpRX;--dur:48s;');
+    const ps = el('span', 'shell', 'animation-name:cpRX;animation-duration:48s;');
     for (let i = 0; i < (small ? 6 : 8); i++) {
       const w = (14 + rp() * 22) * scale, h = (10 + rp() * 16) * scale;
       const lo = rp() * 360, la = Math.asin(2 * rp() - 1) * 180 / Math.PI;
@@ -88,7 +88,7 @@
       const col = wide ? 'rgba(90,162,255,.35)' : ['rgba(140,195,255,.85)', 'rgba(90,162,255,.75)', 'rgba(214,236,255,.9)'][Math.floor(rb() * 3)];
       const az = rb() * 360, ay = rb() * 360, len = L * (0.6 + rb() * 0.4);
       const base = 4 + rb() * 10, dir = rb() < 0.5 ? 'normal' : 'reverse';
-      const wrap = el('span', 'beam-wrap', `animation-name:${ANIMS[i % 4]};animation-direction:${dir};--dur:${base.toFixed(1)}s;`);
+      const wrap = el('span', 'beam-wrap', `animation-name:${ANIMS[i % 4]};animation-direction:${dir};animation-duration:${base.toFixed(1)}s;`);
       wrap.appendChild(el('span', 'beam',
         `width:${len.toFixed(1)}px;height:${h.toFixed(1)}px;margin-top:${(-h / 2).toFixed(2)}px;transform:rotateZ(${az.toFixed(1)}deg) rotateY(${ay.toFixed(1)}deg);` +
         `background:linear-gradient(90deg, rgba(140,195,255,0) 0%, rgba(140,195,255,0) 20%, ${col} 75%, rgba(230,243,255,.95) 100%);box-shadow:0 0 8px ${col};`));
@@ -96,19 +96,32 @@
     }
   }
 
+  // Velocità: k = 1 normale, k < 1 più veloce. Cambia il ritmo senza far saltare le rotazioni.
+  let curK = 1, sceneEl = null;
+  function applySpeed() {
+    if (!sceneEl) return;
+    sceneEl.querySelectorAll('.ring, .shell, .beam-wrap').forEach((e) => {
+      if (e.getAnimations) {
+        e.getAnimations().forEach((a) => { if (a.updatePlaybackRate) a.updatePlaybackRate(1 / curK); else a.playbackRate = 1 / curK; });
+      }
+    });
+  }
+
   window.CiccioSphere = {
     init(scene) {
+      sceneEl = scene;
       build(scene);
+      requestAnimationFrame(applySpeed);
       let t;
       let lastW = scene.getBoundingClientRect().width;
       window.addEventListener('resize', () => {
         clearTimeout(t);
         t = setTimeout(() => {
           const w = scene.getBoundingClientRect().width;
-          if (Math.abs(w - lastW) > 40) { lastW = w; build(scene); }
+          if (Math.abs(w - lastW) > 40) { lastW = w; build(scene); requestAnimationFrame(applySpeed); }
         }, 300);
       });
     },
-    speed(k) { document.documentElement.style.setProperty('--k', String(k)); },
+    speed(k) { curK = k > 0 ? k : 1; applySpeed(); },
   };
 })();

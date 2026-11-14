@@ -186,7 +186,31 @@
   V.beep = beep;
 
   // ---------- lettura ad alta voce ----------
-  let audio = null;
+  // Su iPhone (e in parte su Android) l'audio parte solo se è stato "sbloccato" da un tocco:
+  // al primo tocco sblocchiamo un lettore che poi riusiamo per tutte le risposte.
+  const SILENT = 'data:audio/wav;base64,UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YZABAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
+  let player = null, playing = false, unlocked = false;
+  function getPlayer() {
+    if (!player) { player = new Audio(); player.preload = 'auto'; player.setAttribute('playsinline', ''); }
+    return player;
+  }
+  function unlockAudio() {
+    if (unlocked) return;
+    unlocked = true;
+    try {
+      const p = getPlayer();
+      p.src = SILENT;
+      const pr = p.play();
+      if (pr && pr.then) pr.then(() => { if (!playing) p.pause(); }).catch(() => { unlocked = false; });
+    } catch (_) { unlocked = false; }
+    try {
+      if ('speechSynthesis' in window) { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); }
+    } catch (_) { /* ignore */ }
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state !== 'running') actx.resume(); } catch (_) { /* ignore */ }
+  }
+  ['touchend', 'click', 'keydown'].forEach((ev) => document.addEventListener(ev, unlockAudio, true));
+  V.unlockAudio = unlockAudio;
+
   function pauseListening() { V.speaking = true; stop(); if (LW()) LW().pause(); }
   function resumeListening() {
     V.speaking = false;
@@ -200,11 +224,30 @@
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'it-IT';
       const it = speechSynthesis.getVoices().filter((v) => v.lang && v.lang.startsWith('it'));
-      const pick = it.find((v) => /google|natural|online/i.test(v.name)) || it[0];
+      const pick = it.find((v) => /google|natural|online|alice|federica|luca/i.test(v.name)) || it[0];
       if (pick) u.voice = pick;
       u.rate = 1.05;
-      u.onend = resolve; u.onerror = resolve;
+      let done = false;
+      const fin = () => { if (!done) { done = true; resolve(); } };
+      u.onend = fin; u.onerror = fin;
+      setTimeout(fin, Math.min(60000, 4000 + text.length * 90)); // se il telefono non avvisa la fine
       speechSynthesis.speak(u);
+    });
+  }
+
+  // true se l'audio è stato riprodotto, false se il browser l'ha bloccato
+  function playBlob(blob) {
+    return new Promise((resolve) => {
+      const p = getPlayer();
+      const url = URL.createObjectURL(blob);
+      let done = false;
+      const fin = (ok) => { if (done) return; done = true; playing = false; p.onended = p.onerror = null; URL.revokeObjectURL(url); resolve(ok); };
+      p.onended = () => fin(true);
+      p.onerror = () => fin(false);
+      p.src = url;
+      playing = true;
+      const pr = p.play();
+      if (pr && pr.catch) pr.catch(() => fin(false));
     });
   }
 
@@ -217,11 +260,10 @@
         if (blob) {
           V.useAzure = true;
           if (onStart) onStart();
-          await new Promise((resolve) => {
-            audio = new Audio(URL.createObjectURL(blob));
-            audio.onended = resolve; audio.onerror = resolve;
-            audio.play().catch(resolve);
-          });
+          const ok = await playBlob(blob);
+          if (ok) return;
+          // bloccato dal telefono: prova con la voce del dispositivo
+          await browserSpeak(text);
           return;
         }
         V.useAzure = false;
@@ -229,13 +271,12 @@
       if (onStart) onStart();
       await browserSpeak(text);
     } finally {
-      audio = null;
       resumeListening();
     }
   };
 
   V.stopSpeaking = function () {
-    if (audio) { try { audio.pause(); } catch (_) { /* ignore */ } audio = null; }
+    if (player && playing) { try { player.pause(); } catch (_) { /* ignore */ } if (player.onended) player.onended(); }
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   };
 

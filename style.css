@@ -72,12 +72,12 @@ main.grid { display: flex; flex-wrap: wrap; gap: 20px; padding: 22px 28px; align
 .scene, .scene * { transform-style: preserve-3d; }
 .scene { position: absolute; inset: 0; }
 .ring-wrap { position: absolute; }
-.ring { position: absolute; inset: 0; border-radius: 50%; animation-timing-function: linear; animation-iteration-count: infinite; animation-duration: calc(var(--dur) * var(--k)); }
+.ring { position: absolute; inset: 0; border-radius: 50%; animation-timing-function: linear; animation-iteration-count: infinite; }
 .ring .orbit-dot { position: absolute; left: 50%; top: -4px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: #E6F3FF; box-shadow: 0 0 10px #8CC3FF, 0 0 22px #3B82F6; }
-.shell { position: absolute; inset: 0; animation-timing-function: linear; animation-iteration-count: infinite; animation-duration: calc(var(--dur) * var(--k)); }
+.shell { position: absolute; inset: 0; animation-timing-function: linear; animation-iteration-count: infinite; }
 .frag { position: absolute; left: 50%; top: 50%; border-radius: 1px; animation: cpTw 2.6s ease-in-out infinite; }
 .panel3d { position: absolute; left: 50%; top: 50%; border: 1px solid rgba(140,195,255,.6); background: repeating-linear-gradient(0deg, rgba(140,195,255,.35) 0 1px, rgba(59,130,246,.08) 1px 4px); box-shadow: 0 0 8px rgba(59,130,246,.45); }
-.beam-wrap { position: absolute; inset: 0; animation-timing-function: linear; animation-iteration-count: infinite; animation-duration: calc(var(--dur) * var(--k)); }
+.beam-wrap { position: absolute; inset: 0; animation-timing-function: linear; animation-iteration-count: infinite; }
 .beam { position: absolute; left: 50%; top: 50%; transform-origin: 0 50%; border-radius: 2px; }
 .core { position: absolute; left: 50%; top: 50%; width: 18%; height: 18%; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle at 42% 38%, #fff 0%, #CFE6FF 22%, #6FB2FF 50%, rgba(59,130,246,.35) 75%, rgba(59,130,246,0) 100%); box-shadow: 0 0 24px #6FB2FF, 0 0 60px rgba(59,130,246,.8); animation: cpCore 2.4s ease-in-out infinite; }
 body.st-listening .core, body.st-speaking .core { animation-duration: .6s; }

@@ -9,6 +9,8 @@
     del: (k) => { try { localStorage.removeItem(k); } catch (_) { /* ignore */ } },
   };
 
+  // Sul telefono l'ascolto continuo non conviene (si ferma a schermo spento e consuma batteria): spento di default
+  const IS_PHONE = window.matchMedia && window.matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 700;
   let token = LS.get('ciccio_token', null);
   let chatHist = [];
   try { chatHist = JSON.parse(sessionStorage.getItem('ciccio_hist') || '[]'); } catch (_) { chatHist = []; }
@@ -352,7 +354,7 @@
     $('btn-teach').disabled = !V.supported;
   }
   function reloadWake() {
-    const wake = LS.get('ciccio_wake', true) && V.supported;
+    const wake = LS.get('ciccio_wake', !IS_PHONE) && V.supported;
     V.setWake(false);
     V.wakeMode = 'chrome';
     V.initLocalWake().then((local) => {
@@ -389,7 +391,7 @@
 
   // ---------- avvio ----------
   function startApp() {
-    const wake = LS.get('ciccio_wake', true);
+    const wake = LS.get('ciccio_wake', !IS_PHONE);
     const voice = LS.get('ciccio_voice', true);
     $('opt-wake').checked = wake && V.supported;
     $('opt-wake').disabled = !V.supported;
