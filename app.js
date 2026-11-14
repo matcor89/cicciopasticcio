@@ -325,6 +325,11 @@
   $('btn-settings').addEventListener('click', () => $('drawer').classList.remove('hidden'));
   $('drawer-x').addEventListener('click', () => $('drawer').classList.add('hidden'));
   $('opt-wake').addEventListener('change', (e) => { LS.set('ciccio_wake', e.target.checked); if (e.target.checked) reloadWake(); else { V.setWake(false); setState('idle'); } });
+  $('btn-voice-test').addEventListener('click', async () => {
+    toast('Provo la voce…', 2000);
+    const log = await V.testVoice();
+    toast(log.length ? log.join(' · ') : 'Nessun risultato', 12000);
+  });
   $('opt-voice').addEventListener('change', (e) => { LS.set('ciccio_voice', e.target.checked); V.voiceEnabled = e.target.checked; if (!e.target.checked) V.stopSpeaking(); });
   $('btn-google').addEventListener('click', () => { window.location.href = `${API}/google/start?t=${encodeURIComponent(token)}`; });
   $('btn-meta').addEventListener('click', async () => {

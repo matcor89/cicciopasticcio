@@ -220,7 +220,7 @@
 
   function browserSpeak(text) {
     return new Promise((resolve) => {
-      if (!('speechSynthesis' in window)) return resolve();
+      if (!('speechSynthesis' in window)) { note('voce del telefono non disponibile'); return resolve(); }
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'it-IT';
       const it = speechSynthesis.getVoices().filter((v) => v.lang && v.lang.startsWith('it'));
@@ -229,25 +229,43 @@
       u.rate = 1.05;
       let done = false;
       const fin = () => { if (!done) { done = true; resolve(); } };
-      u.onend = fin; u.onerror = fin;
+      u.onend = () => { note('voce del telefono: ok'); fin(); };
+      u.onerror = (e) => { note(`voce del telefono: errore ${e && e.error}`); fin(); };
       setTimeout(fin, Math.min(60000, 4000 + text.length * 90)); // se il telefono non avvisa la fine
       speechSynthesis.speak(u);
     });
   }
 
+  V.audioLog = [];
+  function note(m) { V.audioLog.push(m); if (V.audioLog.length > 8) V.audioLog.shift(); }
+
+  // Su Safari i file audio "blob:" a volte non partono: lo passiamo come data: con il tipo giusto
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const b = blob.type && blob.type.startsWith('audio/') ? blob : new Blob([blob], { type: 'audio/mpeg' });
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result); fr.onerror = () => reject(fr.error);
+      fr.readAsDataURL(b);
+    });
+  }
+
   // true se l'audio è stato riprodotto, false se il browser l'ha bloccato
-  function playBlob(blob) {
+  async function playBlob(blob) {
+    let src;
+    try { src = await blobToDataUrl(blob); } catch (e) { note(`lettura audio: ${e && e.message}`); return false; }
     return new Promise((resolve) => {
       const p = getPlayer();
-      const url = URL.createObjectURL(blob);
-      let done = false;
-      const fin = (ok) => { if (done) return; done = true; playing = false; p.onended = p.onerror = null; URL.revokeObjectURL(url); resolve(ok); };
+      let done = false, started = false;
+      const fin = (ok) => { if (done) return; done = true; playing = false; p.onended = p.onerror = p.onplaying = null; resolve(ok); };
       p.onended = () => fin(true);
-      p.onerror = () => fin(false);
-      p.src = url;
+      p.onerror = () => { note(`errore lettore: ${p.error ? p.error.code : '?'}`); fin(false); };
+      p.onplaying = () => { started = true; };
+      p.src = src;
       playing = true;
       const pr = p.play();
-      if (pr && pr.catch) pr.catch(() => fin(false));
+      if (pr && pr.catch) pr.catch((e) => { note(`riproduzione bloccata: ${e && e.name}`); fin(false); });
+      // se dopo 4 secondi non è nemmeno partito, consideralo bloccato
+      setTimeout(() => { if (!started && !done) { note('riproduzione non partita'); try { p.pause(); } catch (_) { /* ignore */ } fin(false); } }, 4000);
     });
   }
 
@@ -255,24 +273,32 @@
     if (!V.voiceEnabled || !text) return;
     pauseListening();
     try {
-      if (V.useAzure !== false && V.api) {
+      if (V.api) {
         const blob = await V.api.tts(text);
-        if (blob) {
-          V.useAzure = true;
+        if (blob && blob.size > 200) {
           if (onStart) onStart();
           const ok = await playBlob(blob);
-          if (ok) return;
-          // bloccato dal telefono: prova con la voce del dispositivo
+          if (ok) { note('voce del server: ok'); return; }
+          note('voce del server bloccata: uso quella del telefono');
           await browserSpeak(text);
           return;
         }
-        V.useAzure = false;
+        note(`voce del server non disponibile (${blob ? blob.size : 'nessuna risposta'})`);
       }
       if (onStart) onStart();
       await browserSpeak(text);
     } finally {
       resumeListening();
     }
+  };
+
+  // Pulsante «Prova la voce»: va chiamato direttamente dal tocco
+  V.testVoice = async function () {
+    V.audioLog = [];
+    unlocked = false; unlockAudio();
+    const was = V.voiceEnabled; V.voiceEnabled = true;
+    try { await V.speak('Ciao, mi senti? Questa è una prova della voce di Cicciopasticcio.'); } finally { V.voiceEnabled = was; }
+    return V.audioLog.slice();
   };
 
   V.stopSpeaking = function () {
