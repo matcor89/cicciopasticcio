@@ -98,7 +98,10 @@
     if (rec && running) { try { rec.stop(); } catch (_) { /* ignore */ } }
   }
 
+  const LW = () => (V.wakeMode === 'local' ? window.CiccioWakeLocal : null);
+
   function startCommandWindow() {
+    if (LW()) LW().pause();
     setMode('command');
     beep(880);
     if (V.onWake) V.onWake();
@@ -114,11 +117,43 @@
 
   function backToWake() {
     setMode(V.wakeEnabled ? 'wake' : 'off');
+    if (LW()) {
+      // In modalità locale Chrome ascolta solo il comando: poi si spegne e torna il modello locale
+      wantRunning = false; stop();
+      if (V.wakeEnabled && !V.speaking) LW().resume();
+      return;
+    }
     if (!V.wakeEnabled) { wantRunning = false; stop(); }
   }
 
+  V.wakeMode = 'chrome';   // 'chrome' oppure 'local'
+
+  // Prova a usare il modello locale; se non c'è resta il riconoscimento di Chrome
+  V.initLocalWake = async function () {
+    const L = window.CiccioWakeLocal;
+    if (!L || !SR) return false;
+    const ok = await L.init();
+    if (!ok) return false;
+    L.onDetect = () => {
+      if (V.mode !== 'wake' || V.speaking) return;
+      wantRunning = true;
+      startCommandWindow();
+      start();
+    };
+    L.onError = (m) => { if (V.onError) V.onError(m); };
+    V.wakeMode = 'local';
+    return true;
+  };
+
   V.setWake = function (on) {
     V.wakeEnabled = !!on && !!SR;
+    if (LW()) {
+      if (V.wakeEnabled) {
+        setMode('wake');
+        LW().start().then((ok) => { if (!ok) { V.wakeEnabled = false; setMode('off'); } else LW().resume(); });
+      } else if (V.mode !== 'command') { setMode('off'); LW().stop(); }
+      return;
+    }
     if (V.wakeEnabled) { setMode('wake'); wantRunning = true; start(); }
     else if (V.mode !== 'command') { setMode('off'); wantRunning = false; stop(); }
   };
@@ -151,10 +186,11 @@
 
   // ---------- lettura ad alta voce ----------
   let audio = null;
-  function pauseListening() { V.speaking = true; stop(); }
+  function pauseListening() { V.speaking = true; stop(); if (LW()) LW().pause(); }
   function resumeListening() {
     V.speaking = false;
-    if (wantRunning) setTimeout(start, 250);
+    if (LW()) { if (V.wakeEnabled && V.mode === 'wake') setTimeout(() => LW().resume(), 300); }
+    else if (wantRunning) setTimeout(start, 250);
   }
 
   function browserSpeak(text) {

@@ -1,0 +1,4 @@
+Modelli per il riconoscimento locale di «Hey Cicciopasticcio» (openWakeWord).
+- melspectrogram.onnx, embedding_model.onnx: estrattori di caratteristiche di openWakeWord v0.5.1
+- hey_cicciopasticcio.onnx: modello addestrato sulla parola (da aggiungere dopo l'addestramento su Colab)
+Se hey_cicciopasticcio.onnx manca, Cicciopasticcio usa il riconoscimento vocale di Chrome.

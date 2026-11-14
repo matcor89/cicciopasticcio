@@ -339,7 +339,13 @@
     $('opt-wake').disabled = !V.supported;
     $('opt-voice').checked = voice;
     V.voiceEnabled = voice;
-    if (wake && V.supported) V.setWake(true);
+    if (wake && V.supported) {
+      V.initLocalWake().then((local) => {
+        V.setWake(true);
+        setState('idle');
+        if (local) $('hint').textContent = 'Parola riconosciuta sul dispositivo · di\' «Hey Cicciopasticcio» o premi Ctrl + M';
+      });
+    }
     if (!V.supported) $('hint').textContent = 'Per la voce apri Cicciopasticcio con Google Chrome';
     else $('hint').textContent = 'Di\' «Hey Cicciopasticcio», tocca la sfera o premi Ctrl + M';
     setState('idle');
