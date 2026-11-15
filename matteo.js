@@ -53,58 +53,44 @@
 
   <!-- Matteo -->
   <g class="mt-persona">
-    <!-- busto: polo bianca -->
-    <rect x="130" y="92" width="60" height="40" rx="18" fill="#F3F3EF"/>
-    <rect x="130" y="92" width="60" height="40" rx="18" fill="none" stroke="#D9DCE3" stroke-width="1"/>
-    <rect x="156" y="84" width="8" height="10" rx="3" fill="#E4AE86"/>
-    <path d="M150 90 L160 101 L170 90 Z" fill="#E4AE86"/>
-    <path d="M147 89 L160 101 L154 104 L145 93 Z" fill="#FFFFFF" stroke="#D9DCE3" stroke-width=".8"/>
-    <path d="M173 89 L160 101 L166 104 L175 93 Z" fill="#FFFFFF" stroke="#D9DCE3" stroke-width=".8"/>
-    <line x1="160" y1="101" x2="160" y2="112" stroke="#D9DCE3" stroke-width="1"/>
-    <circle cx="160" cy="105" r=".9" fill="#C9CDD6"/><circle cx="160" cy="109" r=".9" fill="#C9CDD6"/>
+    <!-- busto -->
+    <rect x="130" y="92" width="60" height="40" rx="18" fill="#3B82F6"/>
+    <path d="M150 92 L160 104 L170 92 Z" fill="#E8F0FF"/>
+    <rect x="156" y="86" width="8" height="8" rx="3" fill="#E9B993"/>
     <!-- braccia -->
-    <rect class="mt-braccio mt-braccio-sx" x="128" y="98" width="14" height="28" rx="7" fill="#E6E7E2"/>
-    <rect class="mt-braccio mt-braccio-dx" x="178" y="98" width="14" height="28" rx="7" fill="#E6E7E2"/>
+    <rect class="mt-braccio mt-braccio-sx" x="128" y="98" width="14" height="28" rx="7" fill="#2F6FD8"/>
+    <rect class="mt-braccio mt-braccio-dx" x="178" y="98" width="14" height="28" rx="7" fill="#2F6FD8"/>
 
     <g class="mt-testa">
-      <!-- orecchie (con orecchino) -->
-      <ellipse cx="142" cy="70" rx="4" ry="5" fill="#E4AE86"/>
-      <ellipse cx="178" cy="70" rx="4" ry="5" fill="#E4AE86"/>
-      <circle cx="141.5" cy="74" r="1.3" fill="#F4F7FF"/>
-      <path d="M139.5 66 C138 34 182 34 180.5 66" fill="none" stroke="#0B1C42" stroke-width="3" stroke-linecap="round"/>
+      <!-- orecchie -->
+      <circle cx="141" cy="70" r="4.5" fill="#E9B993"/>
+      <circle cx="179" cy="70" r="4.5" fill="#E9B993"/>
       <!-- viso -->
-      <ellipse cx="160" cy="69" rx="17.5" ry="20" fill="#EDBB94"/>
-      <path d="M146 78 Q160 92 174 78" fill="none" stroke="#D99B73" stroke-width="1" opacity=".5"/>
-      <!-- capelli: ciuffo voluminoso con la riga in mezzo che scende sulla fronte -->
-      <path d="M139 70 C133 52 142 37 160 37 C178 37 187 52 181 70 C179.5 65 177.5 61 175.5 58.5 C173 62.5 168 62.5 164 58.5 C162 55.5 160.8 52.5 160 50 C159.2 52.5 158 55.5 156 58.5 C152 62.5 147 62.5 144.5 58.5 C142.5 61 140.5 65 139 70Z" fill="#76533A"/>
-      <path d="M160 50 C157 55 152 60 146.5 60 C149 54 154 50.5 160 50Z" fill="#9A7350"/>
-      <path d="M160 50 C163 55 168 60 173.5 60 C171 54 166 50.5 160 50Z" fill="#9A7350"/>
-      <path d="M147 44 C153 40.5 167 40.5 173 44" fill="none" stroke="#A47C57" stroke-width="1.3" stroke-linecap="round"/>
-      <path d="M143 52 C145 47 149 44 153 43" fill="none" stroke="#A47C57" stroke-width="1" stroke-linecap="round" opacity=".7"/>
-      <!-- sopracciglia -->
-      <path d="M149 63.5 Q153 62 157 63.3" fill="none" stroke="#4A3322" stroke-width="1.6" stroke-linecap="round"/>
-      <path d="M163 63.3 Q167 62 171 63.5" fill="none" stroke="#4A3322" stroke-width="1.6" stroke-linecap="round"/>
-      <!-- occhi aperti: azzurri -->
+      <circle cx="160" cy="68" r="19" fill="#F2C6A0"/>
+      <!-- capelli -->
+      <path d="M141 66 C140 50 150 44 161 45 C173 45 181 52 179 66 C176 58 170 55 163 56 C157 52 149 56 145 60 C143 62 142 64 141 66Z" fill="#E2BE72"/>
+      <!-- guance -->
+      <circle cx="149" cy="75" r="3.4" fill="#F29C8C" opacity=".45"/>
+      <circle cx="171" cy="75" r="3.4" fill="#F29C8C" opacity=".45"/>
+      <!-- occhi aperti -->
       <g class="mt-occhi">
-        <ellipse cx="153" cy="68" rx="2.6" ry="2.4" fill="#FFFFFF"/>
-        <ellipse cx="167" cy="68" rx="2.6" ry="2.4" fill="#FFFFFF"/>
-        <circle cx="153" cy="68" r="1.6" fill="#6F9BC4"/>
-        <circle cx="167" cy="68" r="1.6" fill="#6F9BC4"/>
-        <circle cx="153" cy="68" r=".7" fill="#1A1430"/>
-        <circle cx="167" cy="68" r=".7" fill="#1A1430"/>
+        <ellipse cx="153" cy="68" rx="2.2" ry="2.8" fill="#3D82D6"/>
+        <ellipse cx="167" cy="68" rx="2.2" ry="2.8" fill="#3D82D6"/>
+        <circle cx="153.7" cy="67" r=".8" fill="#FFFFFF"/>
+        <circle cx="167.7" cy="67" r=".8" fill="#FFFFFF"/>
       </g>
       <!-- occhi chiusi (pausa) -->
-      <g class="mt-chiusi" fill="none" stroke="#4A3322" stroke-width="1.5" stroke-linecap="round">
-        <path d="M150.5 69 Q153 71 155.5 69"/><path d="M164.5 69 Q167 71 169.5 69"/>
+      <g class="mt-chiusi" fill="none" stroke="#1A1430" stroke-width="1.6" stroke-linecap="round">
+        <path d="M150 69 Q153 71 156 69"/><path d="M164 69 Q167 71 170 69"/>
       </g>
-      <!-- naso e bocca -->
-      <path d="M160 69 L158.6 75 Q160 76 161.4 75" fill="none" stroke="#C98763" stroke-width="1" stroke-linecap="round"/>
-      <path class="mt-bocca" d="M156 79.5 Q160 81.5 164 79.5" fill="none" stroke="#B5655A" stroke-width="1.6" stroke-linecap="round"/>
+      <!-- bocca -->
+      <path class="mt-bocca" d="M155 77 Q160 81 165 77" fill="none" stroke="#9C4A3C" stroke-width="1.6" stroke-linecap="round"/>
       <!-- cuffie -->
-      <rect x="135.5" y="63" width="7" height="13" rx="3.5" fill="#0B1C42"/>
-      <rect x="177.5" y="63" width="7" height="13" rx="3.5" fill="#0B1C42"/>
-      <path d="M140 75 C141 83 147 85 152 83" fill="none" stroke="#0B1C42" stroke-width="2" stroke-linecap="round"/>
-      <circle cx="153" cy="83" r="2.2" fill="#3B82F6"/>
+      <path d="M140 66 C139 44 181 44 180 66" fill="none" stroke="#0B1C42" stroke-width="3.2" stroke-linecap="round"/>
+      <rect x="135.5" y="62" width="7" height="13" rx="3.5" fill="#0B1C42"/>
+      <rect x="177.5" y="62" width="7" height="13" rx="3.5" fill="#0B1C42"/>
+      <path d="M140 74 C141 82 147 84 152 82" fill="none" stroke="#0B1C42" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="153" cy="82" r="2.2" fill="#3B82F6"/>
     </g>
 
     <!-- zzz -->
@@ -125,11 +111,11 @@
   <rect x="260" y="153" width="8" height="14" fill="#1A3366"/>
 
   <!-- portatile (visto da dietro) -->
-  <rect x="129" y="103" width="62" height="20" rx="3" fill="#3A4D78"/>
-  <rect x="129" y="103" width="62" height="20" rx="3" fill="none" stroke="#5A6F9C" stroke-width="1.2"/>
-  <circle cx="160" cy="113" r="5.8" fill="none" stroke="#C9D8F5" stroke-width="1.3"/>
-  <text x="160" y="116.2" text-anchor="middle" font-family="'Bodoni Moda', Georgia, serif" font-size="8" fill="#E8F0FF">D</text>
-  <rect x="122" y="120" width="76" height="3" rx="1.5" fill="#5A6F9C"/>
+  <rect x="129" y="103" width="62" height="20" rx="3" fill="#C9D8F5"/>
+  <rect x="129" y="103" width="62" height="20" rx="3" fill="none" stroke="#9FB6E0" stroke-width="1.2"/>
+  <circle cx="160" cy="113" r="5.8" fill="none" stroke="#5A86D6" stroke-width="1.3"/>
+  <text x="160" y="116.2" text-anchor="middle" font-family="'Bodoni Moda', Georgia, serif" font-size="8" fill="#2A4A8A">D</text>
+  <rect x="122" y="120" width="76" height="3" rx="1.5" fill="#9FB6E0"/>
 
   <!-- stampante di etichette -->
   <g transform="translate(70 100)">
