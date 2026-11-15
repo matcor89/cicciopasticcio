@@ -165,6 +165,7 @@
     renderPending();
 
     renderSpend(d.spend);
+    if (window.CiccioMatteo) window.CiccioMatteo.refresh();
     $('updated').textContent = `Aggiornato alle ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
   }
 

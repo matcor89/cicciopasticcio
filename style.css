@@ -171,3 +171,83 @@ footer.bottom { padding: 6px 28px 16px; font-size: 12px; color: #8EA6D2; display
 .t-heard.flash { animation: theard .9s ease; color: #86EFAC !important; }
 @keyframes theard { 0% { transform: scale(1.25); } 100% { transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { .t-now, .t-heard.flash { animation: none; } }
+
+/* ---------- Matteo ---------- */
+#p-matteo h2 { align-items: center; }
+#p-matteo h2 small { flex: 1; }
+.mt-pill { font-size: 11px; font-weight: 600; letter-spacing: .04em; padding: 3px 9px; border-radius: 999px; background: #0F2350; border: 1px solid var(--line-2); color: var(--muted); }
+.mt-pill:empty { display: none; }
+.mt-pill.on { color: #BBF7D0; border-color: rgba(74,222,128,.45); background: rgba(74,222,128,.10); }
+.mt-pill.pausa { color: #FDE68A; border-color: rgba(251,191,36,.45); background: rgba(251,191,36,.10); }
+.mt-pill.spento { color: var(--muted); }
+.mt-scena { display: block; width: 100%; padding: 0; margin: 0 0 12px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  background: radial-gradient(260px 150px at 50% 30%, #163370 0%, #0E2350 55%, #0B1C42 100%); }
+button.mt-scena { cursor: pointer; }
+button.mt-scena:hover { border-color: var(--line-2); }
+button.mt-scena:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.mt-svg { display: block; width: 100%; height: auto; }
+.mt-svg * { transform-box: fill-box; }
+.mt-titolo-lista { margin: 12px 0 6px; font-size: 11.5px; letter-spacing: .06em; color: var(--muted); text-transform: uppercase; }
+.mt-riga { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 8px; align-items: baseline; font-size: 12.5px; color: var(--text-2); }
+.mt-ora { color: var(--accent-2); font-weight: 600; }
+.mt-cosa { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mt-cosa b { color: var(--text); font-weight: 600; }
+.mt-stato { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.mt-stato.wait { color: #FDE68A; }
+.mt-stato.ko { color: #FCA5A5; }
+.mt-giallo { color: #FBBF24; }
+
+/* parti dell'illustrazione */
+.mt-chiusi, .mt-zzz, .mt-bolla { opacity: 0; }
+.mt-luce { opacity: 0; }
+.mt-lancetta-h, .mt-lancetta-m { transform-origin: 50% 100%; }
+.mt-braccio { transform-origin: 50% 0; }
+.mt-testa { transform-origin: 50% 90%; }
+.mt-occhi { transform-origin: 50% 50%; }
+
+/* al lavoro: scrive, l'orologio gira, la stampante fa uscire etichette, il caffè fuma */
+.mt-attivo .mt-luce { opacity: .3; animation: mtLuce 3.2s ease-in-out infinite; }
+.mt-attivo .mt-braccio-sx { animation: mtScrivi .42s ease-in-out infinite; }
+.mt-attivo .mt-braccio-dx { animation: mtScrivi .42s ease-in-out infinite .21s; }
+.mt-attivo .mt-testa { animation: mtTesta 4.5s ease-in-out infinite; }
+.mt-attivo .mt-occhi { animation: mtBlink 4s infinite; }
+.mt-attivo .mt-lancetta-m { animation: mtGira 8s linear infinite; }
+.mt-attivo .mt-lancetta-h { animation: mtGira 96s linear infinite; }
+.mt-attivo .mt-etichetta { animation: mtEtichetta 5s ease-in-out infinite; }
+.mt-attivo .mt-led { animation: mtLed 5s steps(1) infinite; }
+.mt-attivo .mt-v1 { animation: mtVapore 2.6s ease-out infinite; }
+.mt-attivo .mt-v2 { animation: mtVapore 2.6s ease-out infinite 1.3s; }
+
+/* in pausa: dorme con la testa piegata */
+.mt-pausa .mt-occhi { opacity: 0; }
+.mt-pausa .mt-chiusi { opacity: 1; }
+.mt-pausa .mt-testa { transform: rotate(-9deg) translateY(2px); }
+.mt-pausa .mt-zzz { opacity: 1; }
+.mt-pausa .mt-zzz text { animation: mtZ 3s ease-in-out infinite; }
+.mt-pausa .mt-zzz text:nth-child(2) { animation-delay: .5s; }
+.mt-pausa .mt-zzz text:nth-child(3) { animation-delay: 1s; }
+.mt-pausa .mt-etichetta, .mt-spento .mt-etichetta { opacity: 0; }
+.mt-pausa .mt-led { fill: #FBBF24; }
+
+/* spento: luci basse */
+.mt-spento .mt-svg { filter: grayscale(.7) brightness(.55); }
+.mt-spento .mt-occhi { opacity: 0; }
+.mt-spento .mt-chiusi { opacity: 1; }
+.mt-spento .mt-led { fill: #5B6B8C; }
+.mt-spento .mt-vapore { opacity: 0; }
+
+/* qualcosa aspetta il titolare */
+.mt-avviso .mt-bolla { opacity: 1; animation: mtBolla 1.8s ease-in-out infinite; }
+
+@keyframes mtScrivi { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes mtTesta { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(2deg); } 60% { transform: rotate(-1.5deg); } }
+@keyframes mtBlink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.1); } }
+@keyframes mtGira { to { transform: rotate(360deg); } }
+@keyframes mtLuce { 0%, 100% { opacity: .22; } 40% { opacity: .36; } 70% { opacity: .28; } }
+@keyframes mtEtichetta { 0%, 20% { transform: translateY(8px); opacity: 0; } 30% { opacity: 1; } 60%, 80% { transform: translateY(-6px); opacity: 1; } 95%, 100% { transform: translateY(-10px); opacity: 0; } }
+@keyframes mtLed { 0%, 20% { fill: #4ADE80; } 20.01%, 60% { fill: #8CC3FF; } 60.01%, 100% { fill: #4ADE80; } }
+@keyframes mtVapore { 0% { transform: translateY(4px); opacity: 0; } 30% { opacity: .8; } 100% { transform: translateY(-8px); opacity: 0; } }
+@keyframes mtZ { 0%, 100% { transform: translate(0, 0); opacity: .35; } 50% { transform: translate(3px, -4px); opacity: 1; } }
+@keyframes mtBolla { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .mt-svg * { animation: none !important; } }
+.mt-azioni { margin-top: 12px; display: flex; justify-content: flex-end; }
