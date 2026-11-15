@@ -289,6 +289,7 @@
   V.onCommand = (t) => ask(t);
   V.onError = (m) => toast(m, 6000);
   V.onRest = () => { $('said').textContent = 'A riposo'; setState('idle'); };
+  V.onVoiceFail = () => toast('La voce non è partita: la risposta è scritta sullo schermo', 5000);
   V.onGesture = (need) => {
     if (need) { $('hint').textContent = 'Tocca lo schermo una volta per attivare «Hey Cicciopasticcio»'; toast('Tocca lo schermo una volta per attivare «Hey Cicciopasticcio»', 6000); }
     else setHint(V.wakeMode === 'local');

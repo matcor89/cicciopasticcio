@@ -89,8 +89,8 @@
         const wake = WAKE_RE.test(text);
         if (V.speaking) {
           // mentre parla ascolta solo «stop» o «Hey Cicciopasticcio» (per interromperlo)
-          if (isStop(text) && (wake || (res.isFinal && !isEcho(text)))) { consumed = ev.results.length - 1; V.rest(); return; }
-          if (wake && !WAKE_RE.test(speakingText)) { V.stopSpeaking(); openCommand(i, true); onCommandResult(ev); return; }
+          if (isStop(text) && (wake || !isEcho(text))) { consumed = ev.results.length - 1; V.rest(); return; }
+          if (wake && !WAKE_RE.test(speakingText)) { openCommand(i, true); V.stopSpeaking(); onCommandResult(ev); return; }
           continue;
         }
         if (V.mode === 'wake' && wake) { openCommand(i, true); onCommandResult(ev); return; }
@@ -140,6 +140,7 @@
   // ---------- una richiesta: si ascolta finché non fai una pausa ----------
   function openCommand(startIdx, cutWake, barge) {
     if (LW()) LW().pause();
+    wantRunning = true;
     cmd = { start: startIdx, carry: '', cutWake: !!cutWake, wakeOk: !cutWake, heard: false, text: '', barge: !!barge, echoRef: barge ? speakingText : '' };
     setMode('command');
     beep(880);
@@ -314,8 +315,10 @@
   function pauseListening() {
     V.speaking = true;
     if (LW()) {
-      if (V.mode !== 'command') { wantRunning = false; stop(); }
-      if (V.wakeEnabled) LW().strict = true; else LW().pause();
+      if (V.wakeEnabled) {
+        LW().strict = true;
+        wantRunning = true; start();          // per sentire «stop» anche senza la parola
+      } else { LW().pause(); if (V.mode !== 'command') { wantRunning = false; stop(); } }
     } else if (!V.wakeEnabled && V.mode !== 'command') { stop(); }
   }
   function resumeListening() {
@@ -325,6 +328,7 @@
     ignoreUntil = Date.now() + 700;
     if (LW()) {
       LW().strict = false;
+      if (V.mode !== 'command') { wantRunning = false; stop(); }   // finito di parlare: torna solo il modello locale
       if (V.wakeEnabled && V.mode === 'wake' && LW().isPaused()) setTimeout(() => LW().resume(), 300);
     } else if (wantRunning && !running) setTimeout(start, 250);
   }
@@ -396,6 +400,25 @@
   }
 
   // true se l'audio è stato riprodotto, false se il browser l'ha bloccato
+  // Seconda prova con un indirizzo diverso (blob:), che Chrome a volte preferisce
+  async function playBlobUrl(blob) {
+    const url = URL.createObjectURL(blob.type && blob.type.startsWith('audio/') ? blob : new Blob([blob], { type: 'audio/mpeg' }));
+    try {
+      return await new Promise((resolve) => {
+        const p = getPlayer();
+        let done = false, started = false;
+        const fin = (ok) => { if (done) return; done = true; playing = false; p.onended = p.onerror = p.onplaying = null; resolve(ok); };
+        p.onended = () => fin(true);
+        p.onerror = () => fin(false);
+        p.onplaying = () => { started = true; };
+        p.volume = ducked ? 0.2 : 1;
+        p.src = url; playing = true;
+        const pr = p.play(); if (pr && pr.catch) pr.catch(() => fin(false));
+        setTimeout(() => { if (!started && !done) { try { p.pause(); } catch (_) { /* ignore */ } fin(false); } }, 9000);
+      });
+    } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
+  }
+
   async function playBlob(blob) {
     let src;
     try { src = await blobToDataUrl(blob); } catch (e) { note(`lettura audio: ${e && e.message}`); return false; }
@@ -412,9 +435,11 @@
       const pr = p.play();
       if (pr && pr.catch) pr.catch((e) => { note(`riproduzione bloccata: ${e && e.name}`); fin(false); });
       // se dopo 4 secondi non è nemmeno partito, consideralo bloccato
-      setTimeout(() => { if (!started && !done) { note('riproduzione non partita'); try { p.pause(); } catch (_) { /* ignore */ } fin(false); } }, 4000);
+      setTimeout(() => { if (!started && !done) { note('riproduzione non partita'); try { p.pause(); } catch (_) { /* ignore */ } fin(false); } }, 9000);
     });
   }
+
+  V.serverOnly = true;     // con la voce del server attiva non passa mai alla voce di Chrome
 
   V.speak = async function (text, onStart) {
     if (!V.voiceEnabled || !text) return;
@@ -429,19 +454,30 @@
         const parts = splitText(text, 220, 900);
         let next = V.api.tts(parts[0]);
         for (let i = 0; i < parts.length; i++) {
-          const blob = await next;
+          let blob = await next;
           if (my !== speakToken) return;
+          if (!(blob && blob.size > 200)) {          // il server non ha risposto: riprova una volta
+            await new Promise((r) => setTimeout(r, 500));
+            if (my !== speakToken) return;
+            blob = await V.api.tts(parts[i]);
+            if (my !== speakToken) return;
+          }
           next = i + 1 < parts.length ? V.api.tts(parts[i + 1]) : null;   // scarica già il pezzo dopo
           if (blob && blob.size > 200) {
             begin();
-            const ok = await playBlob(blob);
+            let ok = await playBlob(blob);
             if (my !== speakToken) return;
+            if (!ok) { note('riprovo a riprodurre'); ok = await playBlobUrl(blob); if (my !== speakToken) return; }
             if (ok) continue;
-            note('voce del server bloccata: uso quella del telefono');
+            note('riproduzione non riuscita');
           } else {
             note(`voce del server non disponibile (${blob ? blob.size : 'nessuna risposta'})`);
           }
-          // da qui in poi legge con la voce del telefono
+          if (V.serverOnly) {
+            // niente voce di Chrome: la risposta resta scritta sullo schermo
+            if (V.onVoiceFail) V.onVoiceFail();
+            return;
+          }
           begin();
           await browserSpeak(parts.slice(i).join(' '), my);
           return;
