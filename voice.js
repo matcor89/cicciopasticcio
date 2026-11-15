@@ -49,6 +49,15 @@
     return !!t && STOP_RE.test(t);
   }
   V.isStop = isStop;
+  function words(t) { return (t || '').toLowerCase().replace(/[^a-zàèéìíòóùú0-9\s]/gi, ' ').split(/\s+/).filter(Boolean); }
+  // il testo sentito è (quasi tutto) quello che sta dicendo lui? allora è l'eco della sua voce
+  function isEcho(text, ref) {
+    ref = ref == null ? speakingText : ref;
+    if (!ref) return false;
+    const w = words(stripWake(text)); if (!w.length) return false;
+    const said = new Set(words(ref));
+    return w.filter((x) => said.has(x)).length / w.length >= 0.6;
+  }
   V.hasWake = (t) => WAKE_RE.test(t || '');
 
   function setMode(m) {
@@ -80,7 +89,7 @@
         const wake = WAKE_RE.test(text);
         if (V.speaking) {
           // mentre parla ascolta solo «stop» o «Hey Cicciopasticcio» (per interromperlo)
-          if (isStop(text) && (res.isFinal || wake)) { consumed = ev.results.length - 1; V.rest(); return; }
+          if (isStop(text) && (wake || (res.isFinal && !isEcho(text)))) { consumed = ev.results.length - 1; V.rest(); return; }
           if (wake && !WAKE_RE.test(speakingText)) { V.stopSpeaking(); openCommand(i, true); onCommandResult(ev); return; }
           continue;
         }
@@ -129,14 +138,14 @@
   const LW = () => (V.wakeMode === 'local' ? window.CiccioWakeLocal : null);
 
   // ---------- una richiesta: si ascolta finché non fai una pausa ----------
-  function openCommand(startIdx, cutWake) {
+  function openCommand(startIdx, cutWake, barge) {
     if (LW()) LW().pause();
-    cmd = { start: startIdx, carry: '', cutWake: !!cutWake, wakeOk: !cutWake, heard: false, text: '' };
+    cmd = { start: startIdx, carry: '', cutWake: !!cutWake, wakeOk: !cutWake, heard: false, text: '', barge: !!barge, echoRef: barge ? speakingText : '' };
     setMode('command');
     beep(880);
     if (V.onWake) V.onWake();
     clearTimeout(noSpeechTimer); clearTimeout(silenceTimer); clearTimeout(maxTimer);
-    noSpeechTimer = setTimeout(endCommand, NO_SPEECH_MS);
+    noSpeechTimer = setTimeout(endCommand, barge ? 4000 : NO_SPEECH_MS);
     maxTimer = setTimeout(endCommand, MAX_MS);
   }
 
@@ -156,6 +165,9 @@
       if (!res.isFinal) allFinal = false;
     }
     const text = stripWake(`${cmd.carry} ${all}`);
+    // mentre parla a volume basso: se sente solo la sua voce, non è una richiesta
+    if (cmd.barge && !isStop(text) && isEcho(text, cmd.echoRef)) return;
+    if (cmd.barge && V.speaking && text) V.stopSpeaking();   // gli stai davvero parlando: si zittisce
     cmd.text = text;
     if (!text) return;
     if (!cmd.heard) { cmd.heard = true; clearTimeout(noSpeechTimer); }
@@ -173,6 +185,7 @@
   function endCommand() {
     const c = cmd;
     closeCommand();
+    if (c && c.barge) V.duck(false);   // falso allarme: riprende a parlare a volume normale
     const text = c ? c.text : '';
     // niente di sensato (o la parola di attivazione era un errore di Chrome): torna in attesa senza rispondere
     if (!text || (c && c.cutWake && !c.wakeOk)) { backToWake(); return; }
@@ -206,9 +219,14 @@
     if (!ok) return false;
     L.onDetect = () => {
       if (V.mode !== 'wake') return;
-      if (V.speaking) V.stopSpeaking();   // «Hey Cicciopasticcio» mentre parla: si zittisce e ti ascolta
       wantRunning = true;
-      startCommandWindow();
+      if (V.speaking) {
+        // «Hey Cicciopasticcio» mentre parla: abbassa la voce e controlla che sia davvero tu
+        V.duck(true);
+        openCommand(null, false, true);
+      } else {
+        startCommandWindow();
+      }
       start();
     };
     L.onError = (m) => { if (V.onError) V.onError(m); };
@@ -311,9 +329,32 @@
     } else if (wantRunning && !running) setTimeout(start, 250);
   }
 
-  function browserSpeak(text) {
+  // Divide il testo in frasi: la voce di Chrome si blocca dopo circa 15 secondi di testo continuo,
+  // e la voce del server parte prima se la prima frase è corta.
+  function splitText(text, firstMax, max) {
+    const sentences = (text.replace(/\s+/g, ' ').trim().match(/[^.!?;:]+[.!?;:]*["»)]*\s*/g) || [text]);
+    const out = [];
+    let cur = '';
+    const push = () => { if (cur.trim()) out.push(cur.trim()); cur = ''; };
+    for (let p of sentences) {
+      const lim = out.length ? max : firstMax;
+      while (p.length > lim) {           // frase lunghissima: taglia a una virgola o a uno spazio
+        let cut = p.lastIndexOf(', ', lim); if (cut < lim * 0.4) cut = p.lastIndexOf(' ', lim); if (cut < 1) cut = lim;
+        if (cur) push();
+        out.push(p.slice(0, cut + 1).trim()); p = p.slice(cut + 1);
+      }
+      if (cur && (cur.length + p.length > (out.length ? max : firstMax))) push();
+      cur += p;
+    }
+    push();
+    return out.length ? out : [text];
+  }
+  V.splitText = splitText;
+
+  let speakToken = 0;      // cambia quando lo interrompi: i pezzi successivi non vengono più letti
+
+  function speakOne(text, my) {
     return new Promise((resolve) => {
-      if (!('speechSynthesis' in window)) { note('voce del telefono non disponibile'); return resolve(); }
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'it-IT';
       const it = speechSynthesis.getVoices().filter((v) => v.lang && v.lang.startsWith('it'));
@@ -322,11 +363,23 @@
       u.rate = 1.05;
       let done = false;
       const fin = () => { if (!done) { done = true; resolve(); } };
-      u.onend = () => { note('voce del telefono: ok'); fin(); };
+      u.onend = () => fin();
       u.onerror = (e) => { note(`voce del telefono: errore ${e && e.error}`); fin(); };
-      setTimeout(fin, Math.min(60000, 4000 + text.length * 90)); // se il telefono non avvisa la fine
+      // se il dispositivo non avvisa la fine, non resta bloccato
+      setTimeout(() => { if (!done && my === speakToken) { note('voce del telefono: fine non segnalata'); fin(); } }, Math.min(25000, 3000 + text.length * 85));
+      try { speechSynthesis.resume(); } catch (_) { /* ignore */ }
       speechSynthesis.speak(u);
     });
+  }
+
+  async function browserSpeak(text, my) {
+    if (!('speechSynthesis' in window)) { note('voce del telefono non disponibile'); return; }
+    try { speechSynthesis.cancel(); } catch (_) { /* ignore */ }
+    for (const part of splitText(text, 160, 220)) {
+      if (my !== speakToken) return;
+      await speakOne(part, my);
+    }
+    if (my === speakToken) note('voce del telefono: ok');
   }
 
   V.audioLog = [];
@@ -353,6 +406,7 @@
       p.onended = () => fin(true);
       p.onerror = () => { note(`errore lettore: ${p.error ? p.error.code : '?'}`); fin(false); };
       p.onplaying = () => { started = true; };
+      p.volume = ducked ? 0.2 : 1;
       p.src = src;
       playing = true;
       const pr = p.play();
@@ -364,26 +418,49 @@
 
   V.speak = async function (text, onStart) {
     if (!V.voiceEnabled || !text) return;
+    const my = ++speakToken;
     speakingText = text;
+    ducked = false;
     pauseListening();
+    let started = false;
+    const begin = () => { if (!started) { started = true; if (onStart) onStart(); } };
     try {
       if (V.api) {
-        const blob = await V.api.tts(text);
-        if (blob && blob.size > 200) {
-          if (onStart) onStart();
-          const ok = await playBlob(blob);
-          if (ok) { note('voce del server: ok'); return; }
-          note('voce del server bloccata: uso quella del telefono');
-          await browserSpeak(text);
+        const parts = splitText(text, 220, 900);
+        let next = V.api.tts(parts[0]);
+        for (let i = 0; i < parts.length; i++) {
+          const blob = await next;
+          if (my !== speakToken) return;
+          next = i + 1 < parts.length ? V.api.tts(parts[i + 1]) : null;   // scarica già il pezzo dopo
+          if (blob && blob.size > 200) {
+            begin();
+            const ok = await playBlob(blob);
+            if (my !== speakToken) return;
+            if (ok) continue;
+            note('voce del server bloccata: uso quella del telefono');
+          } else {
+            note(`voce del server non disponibile (${blob ? blob.size : 'nessuna risposta'})`);
+          }
+          // da qui in poi legge con la voce del telefono
+          begin();
+          await browserSpeak(parts.slice(i).join(' '), my);
           return;
         }
-        note(`voce del server non disponibile (${blob ? blob.size : 'nessuna risposta'})`);
+        if (my === speakToken) note('voce del server: ok');
+        return;
       }
-      if (onStart) onStart();
-      await browserSpeak(text);
+      begin();
+      await browserSpeak(text, my);
     } finally {
-      resumeListening();
+      if (my === speakToken) resumeListening();
     }
+  };
+
+  // Abbassa il volume mentre controlla se gli stai davvero parlando
+  let ducked = false;
+  V.duck = function (on) {
+    ducked = !!on;
+    if (player && playing) { try { player.volume = on ? 0.2 : 1; } catch (_) { /* ignore */ } }
   };
 
   // Pulsante «Prova la voce»: va chiamato direttamente dal tocco
@@ -396,6 +473,9 @@
   };
 
   V.stopSpeaking = function () {
+    speakToken++;
+    ducked = false;
+    if (V.speaking) resumeListening();
     if (player && playing) { try { player.pause(); } catch (_) { /* ignore */ } if (player.onended) player.onended(); }
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   };
