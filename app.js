@@ -224,12 +224,14 @@
   // ---------- conversazione ----------
   const CONFIRM_RE = /^(s[iì],?\s*)?(conferm[ao]|confermo|procedi|vai pure|vai|ok procedi|invia(lo)?|pubblica(lo)?)\.?$/i;
   const CANCEL_RE = /^(no,?\s*)?(annulla|lascia stare|non (farlo|inviare))\.?$/i;
-  const STOP_RE = /^(stop|basta|zitto|silenzio|fermati)\.?$/i;
 
   async function ask(text) {
     text = (text || '').trim();
-    if (!text || busy) return;
-    if (STOP_RE.test(text)) { V.stopSpeaking(); setState('idle'); return; }
+    if (!text) return;
+    // «stop», «basta», «a riposo»…: si zittisce e torna ad aspettare «Hey Cicciopasticcio»
+    if (V.isStop(text)) { V.rest(); return; }
+    if (busy) return;
+    const askedAt = Date.now();
     if (pendingList.length && CONFIRM_RE.test(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, false); }
     if (pendingList.length && CANCEL_RE.test(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, true); }
 
@@ -250,10 +252,11 @@
         renderPending();
       }
       busy = false;
-      if (V.voiceEnabled) {
+      // se nel frattempo gli hai detto «stop», la risposta resta scritta ma non la legge
+      if (V.voiceEnabled && !(V.restAt > askedAt)) {
         await V.speak(r.reply, () => setState('speaking'));
       }
-      setState('idle');
+      setState(V.mode === 'command' ? 'listening' : 'idle');
       setTimeout(refresh, 800);
     } catch (e) {
       busy = false;
@@ -285,6 +288,7 @@
   V.onInterim = (t) => { $('said').textContent = `«${t}»`; };
   V.onCommand = (t) => ask(t);
   V.onError = (m) => toast(m, 6000);
+  V.onRest = () => { $('said').textContent = 'A riposo'; setState('idle'); };
   V.onGesture = (need) => {
     if (need) { $('hint').textContent = 'Tocca lo schermo una volta per attivare «Hey Cicciopasticcio»'; toast('Tocca lo schermo una volta per attivare «Hey Cicciopasticcio»', 6000); }
     else setHint(V.wakeMode === 'local');

@@ -20,6 +20,7 @@
     source: null,        // 'custom' | 'file' | null
     threshold: 0.5,
     patience: 2,         // blocchi consecutivi sopra soglia per attivarsi
+    strict: false,       // true mentre Cicciopasticcio parla: serve un «Hey Cicciopasticcio» più netto
     onDetect: null,      // () => void
     onTest: null,        // (score) => void, se impostato sostituisce onDetect (prova nell'addestramento)
     onScore: null,       // (score) => void
@@ -185,8 +186,10 @@
     } else return;
     W.lastScore = score;
     if (W.onScore) W.onScore(score);
-    over = score >= W.threshold ? over + 1 : 0;
-    if (over >= W.patience && Date.now() - lastFire > 2000 && !paused) {
+    const thr = W.strict ? Math.min(0.92, W.threshold + 0.2) : W.threshold;
+    const pat = W.strict ? W.patience + 1 : W.patience;
+    over = score >= thr ? over + 1 : 0;
+    if (over >= pat && Date.now() - lastFire > 2000 && !paused) {
       lastFire = Date.now();
       over = 0;
       feats = [];
@@ -284,6 +287,7 @@
   // In pausa mentre Cicciopasticcio parla o ascolta il comando (evita falsi attivamenti)
   W.pause = function () { paused = true; queue = []; over = 0; };
   W.resume = function () { reset(); paused = false; lastFire = Date.now(); };
+  W.isPaused = function () { return paused; };
 
   // ---------- strumenti per l'addestramento ----------
   // Registra dal microfono finché non si chiama stop(); level() dà il volume dell'ultimo blocco
