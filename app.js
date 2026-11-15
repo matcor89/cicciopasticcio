@@ -1,6 +1,7 @@
 /* Cicciopasticcio — interfaccia */
 (function () {
   const API = (window.CICCIO_API || '').replace(/\/$/, '');
+  const STT_API = window.CICCIO_STT_API || `${API}-stt`;
   const $ = (id) => document.getElementById(id);
   const V = window.CiccioVoice;
   const LS = {
@@ -40,6 +41,13 @@
     upload: (data_url) => req('/upload', { method: 'POST', body: { data_url } }),
     subscribe: () => req('/meta/subscribe', { method: 'POST' }),
     logout: () => req('/logout', { method: 'POST' }),
+    stt: async (wav) => {
+      const r = await fetch(STT_API, { method: 'POST', headers: { 'Content-Type': 'audio/wav', 'x-ciccio-token': token || '' }, body: wav });
+      if (r.status === 401) { showLogin(); throw new Error('Sessione scaduta'); }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `Errore ${r.status}`);
+      return j.text || '';
+    },
     tts: async (text) => {
       try {
         const r = await req('/tts', { method: 'POST', body: { text }, raw: true });

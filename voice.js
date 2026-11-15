@@ -51,6 +51,12 @@
   V.isStop = isStop;
   function words(t) { return (t || '').toLowerCase().replace(/[^a-zàèéìíòóùú0-9\s]/gi, ' ').split(/\s+/).filter(Boolean); }
   // il testo sentito è (quasi tutto) quello che sta dicendo lui? allora è l'eco della sua voce
+  const STOP_WORDS = new Set(['stop', 'stoppati', 'basta', 'fermati', 'zitto', 'zitta', 'silenzio', 'riposo', 'riposati']);
+  function hasStopWord(text, ref) {
+    const said = new Set(words(ref == null ? speakingText : ref));
+    return words(stripWake(text)).some((x) => STOP_WORDS.has(x) && !said.has(x));
+  }
+  V.hasStopWord = hasStopWord;
   function isEcho(text, ref) {
     ref = ref == null ? speakingText : ref;
     if (!ref) return false;
@@ -89,8 +95,8 @@
         const wake = WAKE_RE.test(text);
         if (V.speaking) {
           // mentre parla ascolta solo «stop» o «Hey Cicciopasticcio» (per interromperlo)
-          if (isStop(text) && (wake || !isEcho(text))) { consumed = ev.results.length - 1; V.rest(); return; }
-          if (wake && !WAKE_RE.test(speakingText)) { openCommand(i, true); V.stopSpeaking(); onCommandResult(ev); return; }
+          if ((isStop(text) && (wake || !isEcho(text))) || hasStopWord(text)) { consumed = ev.results.length - 1; V.rest(); return; }
+          if (wake && !WAKE_RE.test(speakingText) && !(LW() && LW().recording && LW().recording())) { openCommand(i, true); V.stopSpeaking(); onCommandResult(ev); return; }
           continue;
         }
         if (V.mode === 'wake' && wake) { openCommand(i, true); onCommandResult(ev); return; }
@@ -203,7 +209,7 @@
     setMode(V.wakeEnabled ? 'wake' : 'off');
     if (LW()) {
       // In modalità locale Chrome ascolta solo la richiesta: poi si spegne e torna il modello locale
-      wantRunning = false; stop();
+      if (!V.speaking) { wantRunning = false; stop(); }
       if (V.wakeEnabled) { LW().strict = V.speaking; LW().resume(); }
       return;
     }
@@ -211,6 +217,38 @@
   }
 
   V.wakeMode = 'chrome';   // 'chrome' oppure 'local'
+  V.serverStt = true;      // con la parola insegnata, la richiesta la capisce il server (Azure)
+
+  let sttToken = 0;
+  const TAIL_RE = /^[\s,.!?]*(?:(?:c|ch)ic+[iy]?[oa]?\s*-?\s*)?pa[sz]+ti?c+h?i?(?:n?[oa])?\b[\s,.!?]*/i;
+  function cleanStt(t) { return norm(stripWake(t).replace(TAIL_RE, '')).replace(/^[,.\s]+/, '').replace(/\.$/, ''); }
+
+  async function serverCommand(barge, fromSeq) {
+    const L = LW();
+    const my = ++sttToken;
+    L.pause();
+    setMode('command');
+    const echoRef = barge ? speakingText : '';
+    if (barge) V.duck(true);
+    beep(880);
+    if (V.onWake) V.onWake();
+    const r = await L.record({ fromSeq, noSpeechMs: barge ? 4000 : 6500, silenceMs: 1000, maxMs: barge ? 12000 : 25000 });
+    if (my !== sttToken || r.cancelled) return;
+    const giveUp = () => { if (barge) V.duck(false); backToWake(); };
+    if (!r.speech) return giveUp();
+    if (V.onInterim) V.onInterim('…');
+    let text = '';
+    try { text = cleanStt(await V.api.stt(r.wav)); } catch (e) { if (V.onError) V.onError('Non sono riuscito a capire: riprova.'); }
+    if (my !== sttToken) return;
+    if (!text) return giveUp();
+    if (isStop(text) || hasStopWord(text, echoRef)) { V.rest(); return; }
+    if (barge && V.speaking && isEcho(text, echoRef)) return giveUp();   // era la sua voce
+    if (barge) V.stopSpeaking();
+    backToWake();
+    if (V.onInterim) V.onInterim(text);
+    if (V.onCommand) V.onCommand(text);
+  }
+  const useServer = () => !!(LW() && LW().record && V.serverStt && V.api && V.api.stt && LW().running);
 
   // Prova a usare il modello locale; se non c'è resta il riconoscimento di Chrome
   V.initLocalWake = async function () {
@@ -220,6 +258,7 @@
     if (!ok) return false;
     L.onDetect = () => {
       if (V.mode !== 'wake') return;
+      if (useServer()) { serverCommand(V.speaking, L.detectSeq - 2); return; }
       wantRunning = true;
       if (V.speaking) {
         // «Hey Cicciopasticcio» mentre parla: abbassa la voce e controlla che sia davvero tu
@@ -252,16 +291,18 @@
   V.pushToTalk = function () {
     if (!SR) { if (V.onError) V.onError('Questo browser non supporta il riconoscimento vocale: usa Chrome.'); return; }
     V.stopSpeaking();
+    if (useServer()) { serverCommand(false, LW().seq() + 1); return; }
     wantRunning = true;
     startCommandWindow();
     start();
   };
 
-  V.cancel = function () { closeCommand(); backToWake(); };
+  V.cancel = function () { sttToken++; if (LW() && LW().cancelRecord) LW().cancelRecord(); closeCommand(); backToWake(); };
 
   // «Hey Cicciopasticcio stop»: smette di parlare, chiude l'ascolto e torna ad aspettare la parola
   V.rest = function () {
     V.restAt = Date.now();
+    sttToken++; if (LW() && LW().cancelRecord) LW().cancelRecord();
     V.stopSpeaking();
     closeCommand();
     backToWake();
