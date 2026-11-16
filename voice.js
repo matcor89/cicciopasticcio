@@ -6,6 +6,9 @@
    Parola di attivazione: modello locale se insegnato nell'app, altrimenti riconoscimento di Chrome (it-IT). */
 (function () {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  // Telefono: il microfono acceso impedisce all'iPhone di far partire la voce, quindi mentre risponde va spento
+  const PHONE = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+    (!!window.matchMedia && window.matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 700);
   // «Hey Cicciopasticcio» e le storpiature più comuni del riconoscimento di Chrome
   // (ciccio pasticcio, cicciopasticci, chicco pasticcio, cicciopasticcino…)
   const WAKE_SRC = String.raw`(?:^|\s)(?:(?:hey|ehi|ehy|hei|hej|ei|e|ok|ciao)[\s,]*)?(?:c|ch)ic+[iy]?[oa]?\s*-?\s*pa[sz]+ti?c+h?i?(?:n?[oa])?\b[,.!?]*`;
@@ -78,6 +81,7 @@
   }
 
   function create() {
+    if (rec) { rec.onresult = rec.onerror = rec.onend = rec.onstart = null; }
     rec = new SR();
     rec.lang = 'it-IT';
     rec.continuous = true;
@@ -216,7 +220,18 @@
       if (V.wakeEnabled) { LW().strict = false; LW().resume(); }
       return;
     }
-    if (V.wakeEnabled) { wantRunning = true; start(); }
+    if (V.wakeEnabled) {
+      wantRunning = true;
+      if (PHONE) {
+        // sul telefono riparte con un ascolto nuovo, un attimo dopo che la voce ha finito
+        clearTimeout(idle._t);
+        idle._t = setTimeout(() => {
+          if (!wantRunning || V.deaf || V.speaking || V.mode === 'command') return;
+          if (!running) rec = null;
+          start();
+        }, 400);
+      } else start();
+    }
     else { wantRunning = false; stop(); }
   }
 
@@ -224,8 +239,8 @@
   // (con l'ascolto continuo spento, per esempio sul telefono, il microfono si spegne e lo zittisci toccando la sfera)
   function stopOnly() {
     if (LW()) LW().pause();
-    if (V.wakeEnabled) { wantRunning = true; start(); }
-    else { wantRunning = false; stop(); }
+    if (V.wakeEnabled && !PHONE) { wantRunning = true; start(); }
+    else { wantRunning = false; stop(); }   // sul telefono per zittirlo si tocca la sfera
   }
   function hold() {
     V.deaf = true;
