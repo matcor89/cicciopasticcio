@@ -1,5 +1,5 @@
 // Service worker: rende Cicciopasticcio installabile e veloce da aprire.
-const CACHE = 'ciccio-v16';
+const CACHE = 'ciccio-v17';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'voice.js', 'wake-local.js', 'wake-train.js', 'sphere.js', 'matteo.js', 'config.js', 'logo-white.png', 'manifest.webmanifest', 'icons/icon-192.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => {

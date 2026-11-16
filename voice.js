@@ -286,7 +286,7 @@
     if (!ok) return false;
     L.onDetect = () => {
       if (V.mode !== 'wake' || V.deaf || V.speaking) return;
-      if (useServer()) { serverCommand(L.detectSeq - 18, L.detectSeq + 2, true); return; }
+      if (useServer()) { serverCommand(L.detectSeq - 2, L.detectSeq + 2, false); return; }
       wantRunning = true;
       startCommandWindow();
       start();
