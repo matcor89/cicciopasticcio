@@ -243,6 +243,12 @@
     if (!text) return giveUp();
     if (isStop(text) || hasStopWord(text, echoRef)) { V.rest(); return; }
     if (barge && V.speaking && isEcho(text, echoRef)) return giveUp();   // era la sua voce
+    if (barge) {
+      // se all'inizio c'è un pezzo della sua risposta (sentito mentre parlava), lo toglie
+      const said = new Set(words(echoRef)), w = text.split(/\s+/);
+      let k = 0; while (k < w.length && said.has(words(w[k])[0])) k++;
+      if (k >= 3 && k < w.length) text = w.slice(k).join(' ');
+    }
     if (barge) V.stopSpeaking();
     backToWake();
     if (V.onInterim) V.onInterim(text);
@@ -549,7 +555,9 @@
     return V.audioLog.slice();
   };
 
+  V.interruptedAt = 0;
   V.stopSpeaking = function () {
+    if (V.speaking) V.interruptedAt = Date.now();
     speakToken++;
     ducked = false;
     if (V.speaking) resumeListening();

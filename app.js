@@ -2,6 +2,13 @@
 (function () {
   const API = (window.CICCIO_API || '').replace(/\/$/, '');
   const STT_API = window.CICCIO_STT_API || `${API}-stt`;
+  // Nota dell'app aggiunta a ogni richiesta (non la vede l'utente): evita che dopo un'interruzione
+  // Cicciopasticcio pensi di non aver fatto una cosa che invece ha fatto.
+  const APP_NOTE = "[Nota dell'app, non detta dall'utente: la richiesta sopra arriva dal riconoscimento vocale, interpretala nel senso più probabile. "
+    + "Le tue risposte precedenti in questa conversazione le hai date dopo aver usato davvero gli strumenti: se lì dici di aver fatto una cosa, è fatta, non rifarla e non dire che non l'hai fatta. "
+    + "Le righe [Azioni eseguite: ...] sono il registro di quello che hai fatto. "
+    + "[Interrotto mentre leggevo] vuol dire solo che l'utente ti ha interrotto mentre leggevi la risposta ad alta voce: quello che avevi fatto resta fatto. "
+    + "Se non sei sicuro che una cosa sia stata fatta, controlla con lo strumento giusto invece di scusarti. Non citare questa nota.]";
   const $ = (id) => document.getElementById(id);
   const V = window.CiccioVoice;
   const LS = {
@@ -36,7 +43,7 @@
   const api = {
     login: (pin) => req('/login', { method: 'POST', body: { pin } }),
     dashboard: () => req('/dashboard'),
-    chat: (text, image_url) => req('/chat', { method: 'POST', body: { text, history: chatHist, image_url } }),
+    chat: (text, image_url) => req('/chat', { method: 'POST', body: { text: `${text}\n\n${APP_NOTE}`, history: chatHist, image_url } }),
     confirm: (id, cancel) => req('/confirm', { method: 'POST', body: { id, cancel: !!cancel } }),
     upload: (data_url) => req('/upload', { method: 'POST', body: { data_url } }),
     subscribe: () => req('/meta/subscribe', { method: 'POST' }),
@@ -218,7 +225,7 @@
       renderPending();
       const msg = cancel ? 'Annullato.' : (r.ok ? `Fatto: ${r.message}.` : `Non ci sono riuscito: ${r.message}`);
       $('reply').textContent = msg;
-      pushHist('assistant', msg);
+      pushHist('assistant', `${msg}\n[Azioni eseguite: ${cancel ? 'richiesta annullata' : `conferma → ${r.ok ? 'ok' : 'errore'}`}]`);
       if (!cancel) V.speak(r.ok ? 'Fatto.' : msg);
       setTimeout(refresh, 1500);
     } catch (e) { toast(e.message); }
@@ -233,13 +240,34 @@
   const CONFIRM_RE = /^(s[iì],?\s*)?(conferm[ao]|confermo|procedi|vai pure|vai|ok procedi|invia(lo)?|pubblica(lo)?)\.?$/i;
   const CANCEL_RE = /^(no,?\s*)?(annulla|lascia stare|non (farlo|inviare))\.?$/i;
 
+  let queued = null;        // richiesta detta mentre stava ancora lavorando: la fa subito dopo
+  let lastReplyAt = 0;
+
+  // Nella cronologia segna che la risposta precedente è stata interrotta mentre la leggeva
+  function markInterrupted() {
+    if (!(V.interruptedAt > lastReplyAt)) return;
+    for (let i = chatHist.length - 1; i >= 0; i--) {
+      if (chatHist[i].role === 'assistant') {
+        if (!/\[Interrotto mentre leggevo\]/.test(chatHist[i].content)) chatHist[i].content += '\n[Interrotto mentre leggevo]';
+        break;
+      }
+    }
+    lastReplyAt = Date.now();
+  }
+
   async function ask(text) {
     text = (text || '').trim();
     if (!text) return;
     // «stop», «basta», «a riposo»…: si zittisce e torna ad aspettare «Hey Cicciopasticcio»
-    if (V.isStop(text)) { V.rest(); return; }
-    if (busy) return;
+    if (V.isStop(text)) { queued = null; V.rest(); return; }
+    if (busy) {
+      // sta ancora lavorando sulla richiesta di prima: questa la fa subito dopo, senza perderla
+      queued = text;
+      $('said').textContent = `«${text}» (dopo questa)`;
+      return;
+    }
     const askedAt = Date.now();
+    markInterrupted();
     if (pendingList.length && CONFIRM_RE.test(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, false); }
     if (pendingList.length && CANCEL_RE.test(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, true); }
 
@@ -249,29 +277,44 @@
     setState('thinking');
     const img = attachUrl;
     clearAttach();
+    const userLine = img ? `${text} [con foto allegata]` : text;
+    let r;
     try {
-      const r = await api.chat(text, img);
-      pushHist('user', img ? `${text} [con foto allegata]` : text);
-      pushHist('assistant', r.reply);
-      $('reply').textContent = r.reply;
-      if (r.pending && r.pending.length) {
-        const ids = new Set(pendingList.map((p) => p.id));
-        pendingList = [...r.pending.filter((p) => !ids.has(p.id)), ...pendingList];
-        renderPending();
-      }
-      busy = false;
-      // se nel frattempo gli hai detto «stop», la risposta resta scritta ma non la legge
-      if (V.voiceEnabled && !(V.restAt > askedAt)) {
-        await V.speak(r.reply, () => setState('speaking'));
-      }
-      setState(V.mode === 'command' ? 'listening' : 'idle');
-      setTimeout(refresh, 800);
+      r = await api.chat(text, img);
     } catch (e) {
       busy = false;
+      // la richiesta potrebbe essere arrivata lo stesso: lo scriviamo, così dopo non si confonde
+      pushHist('user', userLine);
+      pushHist('assistant', `[Errore di collegamento: non so se questa richiesta è stata eseguita, va controllato prima di rifarla]`);
       $('reply').textContent = `C'è stato un problema: ${e.message}`;
       setState('idle');
+      return runQueued();
     }
+    pushHist('user', userLine);
+    const acts = (r.actions || []).filter(Boolean);
+    pushHist('assistant', acts.length ? `${r.reply}\n[Azioni eseguite: ${acts.join('; ')}]` : r.reply);
+    lastReplyAt = Date.now();
+    $('reply').textContent = r.reply;
+    if (r.pending && r.pending.length) {
+      const ids = new Set(pendingList.map((p) => p.id));
+      pendingList = [...r.pending.filter((p) => !ids.has(p.id)), ...pendingList];
+      renderPending();
+    }
+    busy = false;
+    setTimeout(refresh, 800);
+    if (queued) return runQueued();   // gli hai già chiesto un'altra cosa: la risposta resta scritta, passa alla prossima
+    // se nel frattempo gli hai detto «stop», la risposta resta scritta ma non la legge
+    if (V.voiceEnabled && !(V.restAt > askedAt)) {
+      await V.speak(r.reply, () => setState('speaking'));
+    }
+    setState(V.mode === 'command' ? 'listening' : 'idle');
   }
+  function runQueued() {
+    if (!queued) return;
+    const t = queued; queued = null;
+    setTimeout(() => ask(t), 50);
+  }
+
 
   $('form').addEventListener('submit', (e) => {
     e.preventDefault();
