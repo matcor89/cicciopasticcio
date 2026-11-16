@@ -73,7 +73,7 @@
     clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add('hidden'), ms);
   }
   const STATES = {
-    idle: ['PRONTO', 1], wake: ['IN ASCOLTO DI «HEY CICCIOPASTICCIO»', 1], listening: ['TI ASCOLTO…', 1],
+    idle: ['PRONTO', 1], wake: ['IN ATTESA DI «HEY CICCIOPASTICCIO»', 1], listening: ['TI ASCOLTO…', 1],
     thinking: ['STO PENSANDO…', 0.25], speaking: ['RISPONDE', 0.6],
   };
   function setState(s) {
@@ -255,7 +255,11 @@
     lastReplyAt = Date.now();
   }
 
+  // Mentre lavora alla richiesta e risponde non ascolta: alla fine torna ad aspettare «Hey Cicciopasticcio»
   async function ask(text) {
+    try { await askInner(text); } finally { if (!busy) V.release(); }
+  }
+  async function askInner(text) {
     text = (text || '').trim();
     if (!text) return;
     // «stop», «basta», «a riposo»…: si zittisce e torna ad aspettare «Hey Cicciopasticcio»
@@ -324,6 +328,7 @@
 
   function listen() {
     if (busy) return;
+    if (V.speaking) { V.rest(); return; }   // tocco mentre parla: si zittisce
     V.stopSpeaking();
     V.pushToTalk();
   }
@@ -339,7 +344,7 @@
   V.onInterim = (t) => { $('said').textContent = `«${t}»`; };
   V.onCommand = (t) => ask(t);
   V.onError = (m) => toast(m, 6000);
-  V.onRest = () => { $('said').textContent = 'A riposo'; setState('idle'); };
+  V.onRest = () => { $('said').textContent = 'A riposo · si risveglia solo con «Hey Cicciopasticcio»'; setState('idle'); };
   V.onVoiceFail = () => toast('La voce non è partita: la risposta è scritta sullo schermo', 5000);
   V.onGesture = (need) => {
     if (need) { $('hint').textContent = 'Tocca lo schermo una volta per attivare «Hey Cicciopasticcio»'; toast('Tocca lo schermo una volta per attivare «Hey Cicciopasticcio»', 6000); }
