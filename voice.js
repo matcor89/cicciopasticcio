@@ -1,9 +1,22 @@
 /* Voce di Cicciopasticcio: ascolto, parola di attivazione e lettura delle risposte.
    Modalità attuale: riconoscimento vocale di Chrome (it-IT).
-   Fase 2: modello locale "hey cicciopasticcio" (vedi guida) che sostituisce solo il rilevamento della parola. */
+   Fase 2: modello locale "hey cicciopasticcio" (vedi guida) che sostituisce solo il rilevamento della parola.
+   Dopo ogni risposta ascolta subito per qualche secondo, senza bisogno di ripetere la parola.
+   «Cicciopasticcio riposati»: dorme e ignora tutto, anche «Hey Cicciopasticcio», finché non sente «Cicciopasticcio svegliati». */
 (function () {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const WAKE_RE = /(?:^|\s)(?:hey|ehi|ehy|hei|ei|e|ok)?\s*cicci[oa]\s*-?\s*pastic+i[oa]?\b[,.!?]?/i;
+  const SVEGLIA_RE = /svegli/i;                 // svegliati, sveglia, svegliamoci…
+  const FOLLOW_MS = 6000;                       // dopo la risposta: tempo per rispondergli senza ripetere la parola
+  const SLEEPCHECK_MS = 6000;                   // mentre dorme: dopo «Cicciopasticcio» aspetta «svegliati» per qualche secondo
+  function words(t) { return (t || '').toLowerCase().replace(/[^a-zàèéìíòóùú\s]/gi, ' ').split(/\s+/).filter(Boolean); }
+  // «riposati» (anche «riposa», «vai a riposare», «a riposo»), detto da solo dopo la parola
+  function isSleepCmd(t) {
+    const w = words(t);
+    if (!w.length || w.length > 4) return false;
+    return w.some((x) => /^(riposati|riposa|riposarti|riposare)$/.test(x)) || / a riposo$/.test(' ' + w.join(' '));
+  }
+  const isWakeUpOnly = (t) => { const w = words(t); return w.length > 0 && w.length <= 2 && w.some((x) => SVEGLIA_RE.test(x)); };
 
   const V = {
     supported: !!SR,
@@ -15,12 +28,18 @@
     onInterim: null,         // (text) => void
     onState: null,           // (state) => void  idle|listening
     onError: null,           // (msg) => void
+    sleeping: false,         // true quando dorme («Cicciopasticcio riposati»)
+    onSleep: null,           // () => void
+    onWakeUp: null,          // () => void
     useAzure: null,          // null = da scoprire
     voiceEnabled: true,
     api: null,
   };
 
   let rec = null, running = false, wantRunning = false, cmdTimer = null, restartDelay = 300, lastError = '';
+  let sleepCheckUntil = 0, sleepTimer = null;
+  try { V.sleeping = localStorage.getItem('ciccio_dorme') === '1'; } catch (_) { /* ignore */ }
+  function saveSleep() { try { localStorage.setItem('ciccio_dorme', V.sleeping ? '1' : '0'); } catch (_) { /* ignore */ } }
 
   function norm(s) { return (s || '').trim(); }
 
@@ -38,6 +57,7 @@
 
     rec.onresult = (ev) => {
       if (V.speaking) return;
+      if (V.sleeping) return onSleepingResult(ev);
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const res = ev.results[i];
         const text = norm(res[0].transcript);
@@ -47,6 +67,7 @@
           if (m) {
             const after = norm(text.slice(m.index + m[0].length));
             if (res.isFinal) {
+              if (isSleepCmd(after)) { V.sleep(); return; }
               if (after.split(/\s+/).filter(Boolean).length >= 2) { finishCommand(after); }
               else { startCommandWindow(); }
             } else if (V.onInterim && after) {
@@ -59,7 +80,11 @@
         } else if (V.mode === 'command') {
           const clean = norm(text.replace(WAKE_RE, ' '));
           if (V.onInterim) V.onInterim(clean);
-          if (res.isFinal && clean) finishCommand(clean);
+          if (res.isFinal && clean) {
+            if (isSleepCmd(clean)) { V.sleep(); return; }
+            if (isWakeUpOnly(clean)) continue;      // «svegliati» quando è già sveglio: resta in ascolto
+            finishCommand(clean);
+          }
         }
       }
     };
@@ -100,14 +125,63 @@
 
   const LW = () => (V.wakeMode === 'local' ? window.CiccioWakeLocal : null);
 
-  function startCommandWindow() {
+  function startCommandWindow(ms, freq) {
     if (LW()) LW().pause();
     setMode('command');
-    beep(880);
+    if (freq !== 0) beep(freq || 880);
     if (V.onWake) V.onWake();
     clearTimeout(cmdTimer);
-    cmdTimer = setTimeout(() => { if (V.mode === 'command') backToWake(); }, 8000);
+    cmdTimer = setTimeout(() => { if (V.mode === 'command') backToWake(); }, ms || 8000);
   }
+
+  // Subito dopo la risposta: ti ascolta qualche secondo senza bisogno di dire di nuovo «Hey Cicciopasticcio»
+  V.followUp = function () {
+    if (!SR || !V.wakeEnabled || V.sleeping || V.speaking || V.mode === 'command') return;
+    wantRunning = true;
+    startCommandWindow(FOLLOW_MS, 660);
+    start();
+  };
+
+  // ---------- sonno ----------
+  // Mentre dorme ascolta solo «Cicciopasticcio svegliati»: tutto il resto non lo attiva
+  function onSleepingResult(ev) {
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const text = norm(ev.results[i][0].transcript);
+      if (!text) continue;
+      const hasWake = WAKE_RE.test(text);
+      if (hasWake) sleepCheckUntil = Math.max(sleepCheckUntil, Date.now() + SLEEPCHECK_MS);
+      if (SVEGLIA_RE.test(text) && (hasWake || Date.now() < sleepCheckUntil)) { V.wakeUp(); return; }
+    }
+  }
+  // Con la parola insegnata: il modello sente «Cicciopasticcio», poi Chrome controlla in silenzio se segue «svegliati»
+  function sleepCheck() {
+    sleepCheckUntil = Date.now() + SLEEPCHECK_MS;
+    wantRunning = true; start();
+    clearTimeout(sleepTimer);
+    sleepTimer = setTimeout(() => { if (V.sleeping && LW()) { wantRunning = false; stop(); } }, SLEEPCHECK_MS + 200);
+  }
+
+  V.sleep = function () {
+    V.sleeping = true; saveSleep();
+    clearTimeout(cmdTimer); clearTimeout(sleepTimer); sleepCheckUntil = 0;
+    V.stopSpeaking();
+    setMode(V.wakeEnabled ? 'wake' : 'off');
+    if (LW()) { wantRunning = false; stop(); if (V.wakeEnabled) LW().resume(); }
+    else if (!V.wakeEnabled) { wantRunning = false; stop(); }
+    beep(660); setTimeout(() => beep(440), 160); setTimeout(() => beep(330), 320);
+    if (V.onSleep) V.onSleep();
+  };
+
+  V.wakeUp = function () {
+    if (!V.sleeping) return;
+    V.sleeping = false; saveSleep();
+    clearTimeout(sleepTimer); sleepCheckUntil = 0;
+    beep(440); setTimeout(() => beep(880), 160);
+    if (V.onWakeUp) V.onWakeUp();
+    // si riprende già in ascolto, come dopo «Hey Cicciopasticcio»
+    wantRunning = true;
+    setTimeout(() => { if (!V.sleeping && V.mode !== 'command') { startCommandWindow(8000, 0); start(); } }, 350);
+  };
 
   function finishCommand(text) {
     clearTimeout(cmdTimer);
@@ -135,6 +209,7 @@
     const ok = await L.init();
     if (!ok) return false;
     L.onDetect = () => {
+      if (V.sleeping) { if (!V.speaking) sleepCheck(); return; }
       if (V.mode !== 'wake' || V.speaking) return;
       wantRunning = true;
       startCommandWindow();
@@ -162,6 +237,7 @@
   V.pushToTalk = function () {
     if (!SR) { if (V.onError) V.onError('Questo browser non supporta il riconoscimento vocale: usa Chrome.'); return; }
     V.stopSpeaking();
+    if (V.sleeping) { V.sleeping = false; saveSleep(); if (V.onWakeUp) V.onWakeUp(); }   // l'hai chiamato tu
     wantRunning = true;
     startCommandWindow();
     start();
@@ -214,7 +290,7 @@
   function pauseListening() { V.speaking = true; stop(); if (LW()) LW().pause(); }
   function resumeListening() {
     V.speaking = false;
-    if (LW()) { if (V.wakeEnabled && V.mode === 'wake') setTimeout(() => LW().resume(), 300); }
+    if (LW()) { if (V.wakeEnabled && V.mode === 'wake') setTimeout(() => { if (V.mode === 'wake' && !V.speaking) LW().resume(); }, 300); }
     else if (wantRunning) setTimeout(start, 250);
   }
 
@@ -269,26 +345,44 @@
     });
   }
 
+  // Prima frase a parte: la voce del server la prepara in un attimo e intanto prepara il resto
+  function splitFirst(text) {
+    const m = text.match(/^[\s\S]{15,170}?[.!?](?=\s|$)/);
+    if (!m || text.length - m[0].length < 15) return [text];
+    return [m[0].trim(), text.slice(m[0].length).trim()];
+  }
+  let speakToken = 0;
+
   V.speak = async function (text, onStart) {
     if (!V.voiceEnabled || !text) return;
+    const my = ++speakToken;
     pauseListening();
     try {
       if (V.api) {
-        const blob = await V.api.tts(text);
-        if (blob && blob.size > 200) {
+        const parts = splitFirst(text);
+        const reqs = parts.map((p) => V.api.tts(p));      // chieste insieme: la prima arriva subito
+        for (let i = 0; i < parts.length; i++) {
+          const blob = await reqs[i];
+          if (my !== speakToken) return;
+          if (blob && blob.size > 200) {
+            if (onStart) onStart();
+            const ok = await playBlob(blob);
+            if (my !== speakToken) return;
+            if (ok) { if (i === parts.length - 1) note('voce del server: ok'); continue; }
+            note('voce del server bloccata: uso quella del telefono');
+          } else {
+            note(`voce del server non disponibile (${blob ? blob.size : 'nessuna risposta'})`);
+          }
           if (onStart) onStart();
-          const ok = await playBlob(blob);
-          if (ok) { note('voce del server: ok'); return; }
-          note('voce del server bloccata: uso quella del telefono');
-          await browserSpeak(text);
+          await browserSpeak(parts.slice(i).join(' '));
           return;
         }
-        note(`voce del server non disponibile (${blob ? blob.size : 'nessuna risposta'})`);
+        return;
       }
       if (onStart) onStart();
       await browserSpeak(text);
     } finally {
-      resumeListening();
+      if (my === speakToken) resumeListening();
     }
   };
 
@@ -302,6 +396,9 @@
   };
 
   V.stopSpeaking = function () {
+    const was = V.speaking;
+    speakToken++;
+    if (was) resumeListening();
     if (player && playing) { try { player.pause(); } catch (_) { /* ignore */ } if (player.onended) player.onended(); }
     if ('speechSynthesis' in window) speechSynthesis.cancel();
   };

@@ -265,7 +265,8 @@
     if (!W.available || W.running) return W.running;
     try {
       reset();
-      mic = await openMic((c) => { if (!paused) { queue.push(c); pump(); } });
+      // continua ad analizzare l'audio anche in pausa: alla ripresa è subito pronto
+      mic = await openMic((c) => { queue.push(c); pump(); });
       W.running = true;
       return true;
     } catch (e) {
@@ -282,8 +283,9 @@
   };
 
   // In pausa mentre Cicciopasticcio parla o ascolta il comando (evita falsi attivamenti)
-  W.pause = function () { paused = true; queue = []; over = 0; };
-  W.resume = function () { reset(); paused = false; lastFire = Date.now(); };
+  // (non riparte da zero: prima ci volevano circa 3 secondi prima che sentisse di nuovo la parola)
+  W.pause = function () { paused = true; over = 0; };
+  W.resume = function () { paused = false; over = 0; lastFire = Math.max(lastFire, Date.now() - 1500); };
 
   // ---------- strumenti per l'addestramento ----------
   // Registra dal microfono finché non si chiama stop(); level() dà il volume dell'ultimo blocco

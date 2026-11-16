@@ -35,7 +35,7 @@
   const api = {
     login: (pin) => req('/login', { method: 'POST', body: { pin } }),
     dashboard: () => req('/dashboard'),
-    chat: (text, image_url) => req('/chat', { method: 'POST', body: { text, history: chatHist, image_url } }),
+    chat: (text, image_url) => req('/chat', { method: 'POST', body: { text: conMemoria(text), history: chatHist, image_url } }),
     confirm: (id, cancel) => req('/confirm', { method: 'POST', body: { id, cancel: !!cancel } }),
     upload: (data_url) => req('/upload', { method: 'POST', body: { data_url } }),
     subscribe: () => req('/meta/subscribe', { method: 'POST' }),
@@ -60,13 +60,33 @@
   const STATES = {
     idle: ['PRONTO', 1], wake: ['IN ASCOLTO DI «HEY CICCIOPASTICCIO»', 1], listening: ['TI ASCOLTO…', 1],
     thinking: ['STO PENSANDO…', 0.25], speaking: ['RISPONDE', 0.6],
+    sleep: ['DORME · DI\' «CICCIOPASTICCIO SVEGLIATI»', 0.08],
   };
   function setState(s) {
+    if (s === 'idle' && V.sleeping) s = 'sleep';
     const key = s === 'idle' && V.wakeEnabled ? 'wake' : s;
     document.body.className = `st-${s}`;
     $('state-label').textContent = STATES[key][0];
     window.CiccioSphere.speed(STATES[key][1]);
   }
+  // ---------- memoria interna ----------
+  // Diario delle ultime richieste e di quello che ha fatto, salvato su questo dispositivo anche se ricarichi la pagina.
+  // Viene mandato con ogni richiesta: così sa cosa ha già fatto e non dice di non averlo fatto.
+  let memoria = LS.get('ciccio_memoria', []);
+  const corto = (t, n) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+  function ricorda(riga) {
+    const quando = new Date().toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    memoria.push(`${quando} · ${riga}`);
+    memoria = memoria.slice(-30);
+    LS.set('ciccio_memoria', memoria);
+  }
+  function conMemoria(text) {
+    if (!memoria.length) return text;
+    let m = memoria.join('\n');
+    if (m.length > 2600) m = m.slice(m.length - 2600);
+    return `[Memoria interna di Cicciopasticcio: richieste e risultati recenti, con giorno e ora. Quello che qui risulta FATTO è stato fatto davvero: non dire che non l'hai fatto e non rifarlo se non te lo chiede. Se ti chiede se hai fatto qualcosa, controlla qui. Non leggere ad alta voce questa memoria.]\n${m}\n[Fine memoria]\n\nRichiesta di adesso: ${text}`;
+  }
+
   function pushHist(role, content) {
     chatHist.push({ role, content });
     chatHist = chatHist.slice(-12);
@@ -203,17 +223,24 @@
       <button class="mini-btn primary" data-confirm="${esc(p.id)}">Conferma</button>
       <button class="mini-btn" data-cancel="${esc(p.id)}">Annulla</button></span></div>`).join('');
   }
-  async function doConfirm(id, cancel) {
+  async function doConfirm(id, cancel, byVoice) {
+    const item = pendingList.find((p) => p.id === id);
+    const cosa = item ? item.summary : 'azione in attesa';
     try {
       const r = await api.confirm(id, cancel);
       pendingList = pendingList.filter((p) => p.id !== id);
       renderPending();
       const msg = cancel ? 'Annullato.' : (r.ok ? `Fatto: ${r.message}.` : `Non ci sono riuscito: ${r.message}`);
+      ricorda(cancel ? `ANNULLATO su sua richiesta: ${corto(cosa, 200)}` : r.ok ? `FATTO (confermato da lui): ${corto(cosa, 200)} → ${corto(r.message, 160)}` : `NON RIUSCITO: ${corto(cosa, 200)} → ${corto(r.message, 160)}`);
       $('reply').textContent = msg;
       pushHist('assistant', msg);
-      if (!cancel) V.speak(r.ok ? 'Fatto.' : msg);
       setTimeout(refresh, 1500);
-    } catch (e) { toast(e.message); }
+      if (!cancel) await V.speak(r.ok ? 'Fatto.' : msg);
+      if (byVoice) V.followUp();
+    } catch (e) {
+      ricorda(`Conferma di «${corto(cosa, 160)}»: errore di collegamento, non è sicuro se è stata eseguita (va controllato)`);
+      toast(e.message);
+    }
   }
   document.addEventListener('click', (e) => {
     const c = e.target.closest('[data-confirm]'); if (c) return doConfirm(c.dataset.confirm, false);
@@ -226,12 +253,12 @@
   const CANCEL_RE = /^(no,?\s*)?(annulla|lascia stare|non (farlo|inviare))\.?$/i;
   const STOP_RE = /^(stop|basta|zitto|silenzio|fermati)\.?$/i;
 
-  async function ask(text) {
+  async function ask(text, byVoice) {
     text = (text || '').trim();
     if (!text || busy) return;
     if (STOP_RE.test(text)) { V.stopSpeaking(); setState('idle'); return; }
-    if (pendingList.length && CONFIRM_RE.test(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, false); }
-    if (pendingList.length && CANCEL_RE.test(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, true); }
+    if (pendingList.length && CONFIRM_RE.test(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, false, byVoice); }
+    if (pendingList.length && CANCEL_RE.test(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, true, byVoice); }
 
     busy = true;
     $('said').textContent = `«${text}»`;
@@ -243,6 +270,8 @@
       const r = await api.chat(text, img);
       pushHist('user', img ? `${text} [con foto allegata]` : text);
       pushHist('assistant', r.reply);
+      const attesa = (r.pending || []).map((p) => p.summary).filter(Boolean);
+      ricorda(`Lui: «${corto(text, 160)}» → Io: «${corto(r.reply, 240)}»${attesa.length ? ` [preparato, IN ATTESA della sua conferma, quindi NON ancora fatto: ${corto(attesa.join('; '), 200)}]` : ''}`);
       $('reply').textContent = r.reply;
       if (r.pending && r.pending.length) {
         const ids = new Set(pendingList.map((p) => p.id));
@@ -250,13 +279,15 @@
         renderPending();
       }
       busy = false;
+      setTimeout(refresh, 800);
       if (V.voiceEnabled) {
         await V.speak(r.reply, () => setState('speaking'));
       }
       setState('idle');
-      setTimeout(refresh, 800);
+      if (byVoice) V.followUp();      // ti ascolta subito per la tua risposta
     } catch (e) {
       busy = false;
+      ricorda(`Lui: «${corto(text, 160)}» → errore di collegamento: non è sicuro se la richiesta è stata eseguita (va controllato prima di rifarla)`);
       $('reply').textContent = `C'è stato un problema: ${e.message}`;
       setState('idle');
     }
@@ -283,7 +314,9 @@
   V.onState = (s) => { if (!busy && !V.speaking) setState(s === 'listening' ? 'listening' : 'idle'); };
   V.onWake = () => { $('said').textContent = 'Dimmi…'; };
   V.onInterim = (t) => { $('said').textContent = `«${t}»`; };
-  V.onCommand = (t) => ask(t);
+  V.onCommand = (t) => ask(t, true);
+  V.onSleep = () => { $('said').textContent = 'Dorme · di\' «Cicciopasticcio svegliati» per svegliarlo'; $('reply').textContent = ''; setState('sleep'); };
+  V.onWakeUp = () => { $('said').textContent = 'Sveglio: dimmi…'; setState('idle'); };
   V.onError = (m) => toast(m, 6000);
   V.onGesture = (need) => {
     if (need) { $('hint').textContent = 'Tocca lo schermo una volta per attivare «Hey Cicciopasticcio»'; toast('Tocca lo schermo una volta per attivare «Hey Cicciopasticcio»', 6000); }
