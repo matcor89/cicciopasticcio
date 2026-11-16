@@ -286,7 +286,6 @@
       ricorda(`Lui: «${corto(text, 160)}» → Io: «${corto(r.reply, 240)}»${attesa.length ? ` [preparato, IN ATTESA della sua conferma, quindi NON ancora fatto: ${corto(attesa.join('; '), 200)}]` : ''}`);
       $('reply').textContent = r.reply;
       for (const sh of r.show || []) {
-        if (sh.type === 'newsletter' && window.CiccioNewsletter) window.CiccioNewsletter.open(sh.id);
         if (sh.type === 'video' && window.CiccioVideo) window.CiccioVideo.open(sh.settings);
       }
       if (r.pending && r.pending.length) {
@@ -371,10 +370,8 @@
     });
   }
 
-  // ---------- newsletter e montaggio ----------
-  window.CiccioNewsletter.init({ req, toast });
+  // ---------- montaggio video ----------
   window.CiccioVideo.init({ req, toast, ricorda, onVideo: setVideo, ask: (t) => ask(t) });
-  $('btn-newsletter').addEventListener('click', () => window.CiccioNewsletter.open());
   $('btn-video').addEventListener('click', () => window.CiccioVideo.open());
   $('video-open').addEventListener('click', () => window.CiccioVideo.open());
   $('video-x').addEventListener('click', () => setVideo(null));
