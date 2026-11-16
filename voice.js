@@ -68,7 +68,8 @@
             const after = norm(text.slice(m.index + m[0].length));
             if (res.isFinal) {
               if (isSleepCmd(after)) { V.sleep(); return; }
-              if (after.split(/\s+/).filter(Boolean).length >= 2) { finishCommand(after); }
+              // ha già iniziato la domanda: la ascolta fino in fondo (non si ferma al primo pezzo)
+              if (after.split(/\s+/).filter(Boolean).length >= 2) { startCommandWindow(null, 0, after); }
               else { startCommandWindow(); }
             } else if (V.onInterim && after) {
               V.onInterim(after);
@@ -78,13 +79,15 @@
             V._pendingWake = false;
           }
         } else if (V.mode === 'command') {
-          const clean = norm(text.replace(WAKE_RE, ' '));
-          if (V.onInterim) V.onInterim(clean);
-          if (res.isFinal && clean) {
-            if (isSleepCmd(clean)) { V.sleep(); return; }
-            if (isWakeUpOnly(clean)) continue;      // «svegliati» quando è già sveglio: resta in ascolto
-            finishCommand(clean);
+          // la frase arriva a pezzi: li mette insieme e aspetta che tu abbia finito di parlare
+          let fin = '', interim = '';
+          for (let j = i; j < ev.results.length; j++) {
+            const r = ev.results[j];
+            const clean = norm(r[0].transcript.replace(WAKE_RE, ' '));
+            if (r.isFinal) fin = norm(`${fin} ${clean}`); else interim = norm(`${interim} ${clean}`);
           }
+          onCommandPiece(fin, interim);
+          return;
         }
       }
     };
@@ -125,13 +128,49 @@
 
   const LW = () => (V.wakeMode === 'local' ? window.CiccioWakeLocal : null);
 
-  function startCommandWindow(ms, freq) {
+  // ---------- la tua richiesta ----------
+  // Chrome divide le frasi lunghe in pezzi: qui si mettono insieme, e la richiesta parte solo
+  // quando smetti di parlare (pausa di circa un secondo e mezzo), non al primo pezzo.
+  const SILENCE_MS = 1400;          // pausa dopo l'ultimo pezzo già scritto
+  const SILENCE_INTERIM_MS = 2000;  // pausa se Chrome sta ancora scrivendo l'ultimo pezzo
+  const MAX_MS = 30000;             // durata massima di una richiesta
+  let cmdFinal = '', cmdInterim = '', silenceTimer = null, maxTimer = null;
+  const cmdText = () => norm(`${cmdFinal} ${cmdInterim}`);
+
+  function onCommandPiece(finalPiece, interim) {
+    if (finalPiece) cmdFinal = norm(`${cmdFinal} ${finalPiece}`);
+    cmdInterim = interim || '';
+    const t = cmdText();
+    if (!t) return;
+    if (V.onInterim) V.onInterim(t);
+    clearTimeout(cmdTimer);          // hai iniziato a parlare: non scade più, aspetta che finisci
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(endCommand, cmdInterim ? SILENCE_INTERIM_MS : SILENCE_MS);
+  }
+
+  function clearCommand() {
+    clearTimeout(cmdTimer); clearTimeout(silenceTimer); clearTimeout(maxTimer);
+    cmdFinal = ''; cmdInterim = '';
+  }
+
+  function endCommand() {
+    const t = cmdText();
+    clearCommand();
+    if (V.mode !== 'command') return;
+    if (!t || isWakeUpOnly(t)) { backToWake(); return; }   // niente detto (o «svegliati» quando è già sveglio)
+    if (isSleepCmd(t)) { V.sleep(); return; }
+    finishCommand(t);
+  }
+
+  function startCommandWindow(ms, freq, seed) {
     if (LW()) LW().pause();
+    clearCommand();
     setMode('command');
     if (freq !== 0) beep(freq || 880);
     if (V.onWake) V.onWake();
-    clearTimeout(cmdTimer);
-    cmdTimer = setTimeout(() => { if (V.mode === 'command') backToWake(); }, ms || 8000);
+    cmdTimer = setTimeout(endCommand, ms || 8000);   // se non inizi a parlare
+    maxTimer = setTimeout(endCommand, MAX_MS);
+    if (seed) onCommandPiece(seed, '');
   }
 
   // Subito dopo la risposta: ti ascolta qualche secondo senza bisogno di dire di nuovo «Hey Cicciopasticcio»
@@ -184,7 +223,7 @@
   };
 
   function finishCommand(text) {
-    clearTimeout(cmdTimer);
+    clearCommand();
     backToWake();
     if (V.onCommand) V.onCommand(text);
   }
@@ -243,7 +282,7 @@
     start();
   };
 
-  V.cancel = function () { clearTimeout(cmdTimer); backToWake(); };
+  V.cancel = function () { clearCommand(); backToWake(); };
 
   // ---------- suoni ----------
   let actx = null;
