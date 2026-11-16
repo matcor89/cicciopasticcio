@@ -320,7 +320,10 @@
   // opt: fromSeq, noSpeechMs, silenceMs, maxMs -> Promise<{ wav, speech, cancelled }>
   W.record = function (opt) {
     if (recorder) recorder.finish(true);
-    opt = Object.assign({ fromSeq: seq + 1, noSpeechMs: 6000, silenceMs: 1000, maxMs: 20000 }, opt || {});
+    // vadFromSeq: l'audio prima di questo blocco entra nella registrazione (per riconoscere la parola)
+    // ma non conta per capire quando hai iniziato e finito di parlare
+    opt = Object.assign({ fromSeq: seq + 1, noSpeechMs: 6000, silenceMs: 750, maxMs: 15000 }, opt || {});
+    if (opt.vadFromSeq == null) opt.vadFromSeq = opt.fromSeq;
     const BLK = 80;   // ms per blocco
     // rumore di fondo: i blocchi più bassi degli ultimi 2 secondi
     const lv = ring.map((r) => rms(r.c)).sort((a, b) => a - b);
@@ -328,12 +331,20 @@
     const thr = Math.max(0.012, floor * 2.8);
     return new Promise((resolve) => {
       const chunks = []; let t = 0, speechBlocks = 0, started = false, quiet = 0, done = false;
+      let voice = 0;   // quanto è forte la tua voce (vicina al microfono)
       const r = {
         feed(item) {
           if (done || item.seq < opt.fromSeq) return;
-          chunks.push(item.c); t += BLK;
-          const loud = rms(item.c) > thr;
-          if (loud) { speechBlocks++; quiet = 0; if (speechBlocks >= 2) started = true; } else { quiet += BLK; }
+          chunks.push(item.c);
+          if (item.seq < opt.vadFromSeq) return;
+          t += BLK;
+          const v = rms(item.c);
+          // la frase finisce quando la tua voce cala: le voci lontane o il rumore del negozio non la tengono aperta
+          const loud = v > Math.max(thr, voice * 0.3);
+          if (loud) {
+            speechBlocks++; quiet = 0; if (speechBlocks >= 2) started = true;
+            voice = voice ? Math.max(voice * 0.97, Math.min(v, voice * 1.5)) : v;
+          } else { quiet += BLK; }
           if (!started && t >= opt.noSpeechMs) return r.finish(false);
           if (started && quiet >= opt.silenceMs) return r.finish(false);
           if (t >= opt.maxMs) return r.finish(false);
@@ -346,7 +357,7 @@
       };
       recorder = r;
       // sicurezza: se il microfono non manda audio, non resta in attesa per sempre
-      setTimeout(() => r.finish(false), opt.maxMs + 1500);
+      setTimeout(() => r.finish(false), opt.maxMs + 3000);
       setTimeout(() => { if (!done && !chunks.length) r.finish(false); }, opt.noSpeechMs + 1500);
       for (const it of ring) r.feed(it);   // l'audio già sentito dopo la parola
     });

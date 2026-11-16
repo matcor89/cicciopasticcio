@@ -328,7 +328,6 @@
 
   function listen() {
     if (busy) return;
-    if (V.speaking) { V.rest(); return; }   // tocco mentre parla: si zittisce
     V.stopSpeaking();
     V.pushToTalk();
   }
