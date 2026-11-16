@@ -1,14 +1,6 @@
 /* Cicciopasticcio — interfaccia */
 (function () {
   const API = (window.CICCIO_API || '').replace(/\/$/, '');
-  const STT_API = window.CICCIO_STT_API || `${API}-stt`;
-  // Nota dell'app aggiunta a ogni richiesta (non la vede l'utente): evita che dopo un'interruzione
-  // Cicciopasticcio pensi di non aver fatto una cosa che invece ha fatto.
-  const APP_NOTE = "[Nota dell'app, non detta dall'utente: la richiesta sopra arriva dal riconoscimento vocale, interpretala nel senso più probabile. "
-    + "Le tue risposte precedenti in questa conversazione le hai date dopo aver usato davvero gli strumenti: se lì dici di aver fatto una cosa, è fatta, non rifarla e non dire che non l'hai fatta. "
-    + "Le righe [Azioni eseguite: ...] sono il registro di quello che hai fatto. "
-    + "[Interrotto mentre leggevo] vuol dire solo che l'utente ti ha interrotto mentre leggevi la risposta ad alta voce: quello che avevi fatto resta fatto. "
-    + "Se non sei sicuro che una cosa sia stata fatta, controlla con lo strumento giusto invece di scusarti. Non citare questa nota.]";
   const $ = (id) => document.getElementById(id);
   const V = window.CiccioVoice;
   const LS = {
@@ -43,18 +35,11 @@
   const api = {
     login: (pin) => req('/login', { method: 'POST', body: { pin } }),
     dashboard: () => req('/dashboard'),
-    chat: (text, image_url) => req('/chat', { method: 'POST', body: { text: `${text}\n\n${APP_NOTE}`, history: chatHist, image_url } }),
+    chat: (text, image_url) => req('/chat', { method: 'POST', body: { text, history: chatHist, image_url } }),
     confirm: (id, cancel) => req('/confirm', { method: 'POST', body: { id, cancel: !!cancel } }),
     upload: (data_url) => req('/upload', { method: 'POST', body: { data_url } }),
     subscribe: () => req('/meta/subscribe', { method: 'POST' }),
     logout: () => req('/logout', { method: 'POST' }),
-    stt: async (wav) => {
-      const r = await fetch(STT_API, { method: 'POST', headers: { 'Content-Type': 'audio/wav', 'x-ciccio-token': token || '' }, body: wav });
-      if (r.status === 401) { showLogin(); throw new Error('Sessione scaduta'); }
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || `Errore ${r.status}`);
-      return j.text || '';
-    },
     tts: async (text) => {
       try {
         const r = await req('/tts', { method: 'POST', body: { text }, raw: true });
@@ -73,7 +58,7 @@
     clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add('hidden'), ms);
   }
   const STATES = {
-    idle: ['PRONTO', 1], wake: ['IN ATTESA DI «HEY CICCIOPASTICCIO»', 1], listening: ['TI ASCOLTO…', 1],
+    idle: ['PRONTO', 1], wake: ['IN ASCOLTO DI «HEY CICCIOPASTICCIO»', 1], listening: ['TI ASCOLTO…', 1],
     thinking: ['STO PENSANDO…', 0.25], speaking: ['RISPONDE', 0.6],
   };
   function setState(s) {
@@ -225,7 +210,7 @@
       renderPending();
       const msg = cancel ? 'Annullato.' : (r.ok ? `Fatto: ${r.message}.` : `Non ci sono riuscito: ${r.message}`);
       $('reply').textContent = msg;
-      pushHist('assistant', `${msg}\n[Azioni eseguite: ${cancel ? 'richiesta annullata' : `conferma → ${r.ok ? 'ok' : 'errore'}`}]`);
+      pushHist('assistant', msg);
       if (!cancel) V.speak(r.ok ? 'Fatto.' : msg);
       setTimeout(refresh, 1500);
     } catch (e) { toast(e.message); }
@@ -239,39 +224,12 @@
   // ---------- conversazione ----------
   const CONFIRM_RE = /^(s[iì],?\s*)?(conferm[ao]|confermo|procedi|vai pure|vai|ok procedi|invia(lo)?|pubblica(lo)?)\.?$/i;
   const CANCEL_RE = /^(no,?\s*)?(annulla|lascia stare|non (farlo|inviare))\.?$/i;
+  const STOP_RE = /^(stop|basta|zitto|silenzio|fermati)\.?$/i;
 
-  let queued = null;        // richiesta detta mentre stava ancora lavorando: la fa subito dopo
-  let lastReplyAt = 0;
-
-  // Nella cronologia segna che la risposta precedente è stata interrotta mentre la leggeva
-  function markInterrupted() {
-    if (!(V.interruptedAt > lastReplyAt)) return;
-    for (let i = chatHist.length - 1; i >= 0; i--) {
-      if (chatHist[i].role === 'assistant') {
-        if (!/\[Interrotto mentre leggevo\]/.test(chatHist[i].content)) chatHist[i].content += '\n[Interrotto mentre leggevo]';
-        break;
-      }
-    }
-    lastReplyAt = Date.now();
-  }
-
-  // Mentre lavora alla richiesta e risponde non ascolta: alla fine torna ad aspettare «Hey Cicciopasticcio»
   async function ask(text) {
-    try { await askInner(text); } finally { if (!busy) V.release(); }
-  }
-  async function askInner(text) {
     text = (text || '').trim();
-    if (!text) return;
-    // «stop», «basta», «a riposo»…: si zittisce e torna ad aspettare «Hey Cicciopasticcio»
-    if (V.isStop(text)) { queued = null; V.rest(); return; }
-    if (busy) {
-      // sta ancora lavorando sulla richiesta di prima: questa la fa subito dopo, senza perderla
-      queued = text;
-      $('said').textContent = `«${text}» (dopo questa)`;
-      return;
-    }
-    const askedAt = Date.now();
-    markInterrupted();
+    if (!text || busy) return;
+    if (STOP_RE.test(text)) { V.stopSpeaking(); setState('idle'); return; }
     if (pendingList.length && CONFIRM_RE.test(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, false); }
     if (pendingList.length && CANCEL_RE.test(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, true); }
 
@@ -281,44 +239,28 @@
     setState('thinking');
     const img = attachUrl;
     clearAttach();
-    const userLine = img ? `${text} [con foto allegata]` : text;
-    let r;
     try {
-      r = await api.chat(text, img);
+      const r = await api.chat(text, img);
+      pushHist('user', img ? `${text} [con foto allegata]` : text);
+      pushHist('assistant', r.reply);
+      $('reply').textContent = r.reply;
+      if (r.pending && r.pending.length) {
+        const ids = new Set(pendingList.map((p) => p.id));
+        pendingList = [...r.pending.filter((p) => !ids.has(p.id)), ...pendingList];
+        renderPending();
+      }
+      busy = false;
+      if (V.voiceEnabled) {
+        await V.speak(r.reply, () => setState('speaking'));
+      }
+      setState('idle');
+      setTimeout(refresh, 800);
     } catch (e) {
       busy = false;
-      // la richiesta potrebbe essere arrivata lo stesso: lo scriviamo, così dopo non si confonde
-      pushHist('user', userLine);
-      pushHist('assistant', `[Errore di collegamento: non so se questa richiesta è stata eseguita, va controllato prima di rifarla]`);
       $('reply').textContent = `C'è stato un problema: ${e.message}`;
       setState('idle');
-      return runQueued();
     }
-    pushHist('user', userLine);
-    const acts = (r.actions || []).filter(Boolean);
-    pushHist('assistant', acts.length ? `${r.reply}\n[Azioni eseguite: ${acts.join('; ')}]` : r.reply);
-    lastReplyAt = Date.now();
-    $('reply').textContent = r.reply;
-    if (r.pending && r.pending.length) {
-      const ids = new Set(pendingList.map((p) => p.id));
-      pendingList = [...r.pending.filter((p) => !ids.has(p.id)), ...pendingList];
-      renderPending();
-    }
-    busy = false;
-    setTimeout(refresh, 800);
-    if (queued) return runQueued();   // gli hai già chiesto un'altra cosa: la risposta resta scritta, passa alla prossima
-    // se nel frattempo gli hai detto «stop», la risposta resta scritta ma non la legge
-    if (V.voiceEnabled && !(V.restAt > askedAt)) {
-      await V.speak(r.reply, () => setState('speaking'));
-    }
-    setState(V.mode === 'command' ? 'listening' : 'idle');
   }
-  function runQueued() {
-    if (!queued) return;
-    const t = queued; queued = null;
-    setTimeout(() => ask(t), 50);
-  }
-
 
   $('form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -343,8 +285,6 @@
   V.onInterim = (t) => { $('said').textContent = `«${t}»`; };
   V.onCommand = (t) => ask(t);
   V.onError = (m) => toast(m, 6000);
-  V.onRest = () => { $('said').textContent = 'A riposo · si risveglia solo con «Hey Cicciopasticcio»'; setState('idle'); };
-  V.onVoiceFail = () => toast('La voce non è partita: la risposta è scritta sullo schermo', 5000);
   V.onGesture = (need) => {
     if (need) { $('hint').textContent = 'Tocca lo schermo una volta per attivare «Hey Cicciopasticcio»'; toast('Tocca lo schermo una volta per attivare «Hey Cicciopasticcio»', 6000); }
     else setHint(V.wakeMode === 'local');

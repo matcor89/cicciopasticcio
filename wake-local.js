@@ -20,7 +20,6 @@
     source: null,        // 'custom' | 'file' | null
     threshold: 0.5,
     patience: 2,         // blocchi consecutivi sopra soglia per attivarsi
-    strict: false,       // true mentre Cicciopasticcio parla: serve un «Hey Cicciopasticcio» più netto
     onDetect: null,      // () => void
     onTest: null,        // (score) => void, se impostato sostituisce onDetect (prova nell'addestramento)
     onScore: null,       // (score) => void
@@ -186,14 +185,11 @@
     } else return;
     W.lastScore = score;
     if (W.onScore) W.onScore(score);
-    const thr = W.strict ? Math.min(0.92, W.threshold + 0.2) : W.threshold;
-    const pat = W.strict ? W.patience + 1 : W.patience;
-    over = score >= thr ? over + 1 : 0;
-    if (over >= pat && Date.now() - lastFire > 2000 && !paused) {
+    over = score >= W.threshold ? over + 1 : 0;
+    if (over >= W.patience && Date.now() - lastFire > 2000 && !paused) {
       lastFire = Date.now();
       over = 0;
       feats = [];
-      W.detectSeq = curSeq;
       if (W.onTest) W.onTest(score);
       else if (W.onDetect) W.onDetect();
     }
@@ -204,10 +200,9 @@
     busy = true;
     try {
       while (queue.length) {
-        const it = queue.shift();
+        const c = queue.shift();
         if (queue.length > 6) queue.splice(0, queue.length - 2); // se resta indietro, salta l'audio vecchio
-        curSeq = it.seq;
-        await processChunk(it.c);
+        await processChunk(c);
       }
     } catch (e) {
       console.warn('[wake-local] errore', e);
@@ -270,12 +265,7 @@
     if (!W.available || W.running) return W.running;
     try {
       reset();
-      mic = await openMic((c) => {
-        const item = { seq: ++seq, c };
-        ring.push(item); if (ring.length > 25) ring.shift();      // ultimi 2 secondi, sempre
-        if (recorder) recorder.feed(item);
-        if (!paused) { queue.push(item); pump(); }
-      });
+      mic = await openMic((c) => { if (!paused) { queue.push(c); pump(); } });
       W.running = true;
       return true;
     } catch (e) {
@@ -294,76 +284,6 @@
   // In pausa mentre Cicciopasticcio parla o ascolta il comando (evita falsi attivamenti)
   W.pause = function () { paused = true; queue = []; over = 0; };
   W.resume = function () { reset(); paused = false; lastFire = Date.now(); };
-  W.isPaused = function () { return paused; };
-
-  // ---------- registrazione della richiesta (dopo «Hey Cicciopasticcio») ----------
-  // Parte dall'audio subito dopo la parola (già in memoria), così non si perdono le prime parole,
-  // e si ferma da sola quando smetti di parlare.
-  let seq = 0, curSeq = 0, ring = [], recorder = null;
-  W.detectSeq = 0;
-  W.seq = () => seq;
-  const rms = (c) => { let x = 0; for (let i = 0; i < c.length; i++) x += c[i] * c[i]; return Math.sqrt(x / c.length); };
-
-  function toWav(chunks) {
-    let n = 0; for (const c of chunks) n += c.length;
-    const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
-    const str = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
-    str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
-    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-    v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
-    str(36, 'data'); v.setUint32(40, n * 2, true);
-    let o = 44;
-    for (const c of chunks) for (let i = 0; i < c.length; i++) { const x = Math.max(-1, Math.min(1, c[i])); v.setInt16(o, x < 0 ? x * 0x8000 : x * 0x7fff, true); o += 2; }
-    return new Blob([buf], { type: 'audio/wav' });
-  }
-
-  // opt: fromSeq, noSpeechMs, silenceMs, maxMs -> Promise<{ wav, speech, cancelled }>
-  W.record = function (opt) {
-    if (recorder) recorder.finish(true);
-    // vadFromSeq: l'audio prima di questo blocco entra nella registrazione (per riconoscere la parola)
-    // ma non conta per capire quando hai iniziato e finito di parlare
-    opt = Object.assign({ fromSeq: seq + 1, noSpeechMs: 6000, silenceMs: 750, maxMs: 15000 }, opt || {});
-    if (opt.vadFromSeq == null) opt.vadFromSeq = opt.fromSeq;
-    const BLK = 80;   // ms per blocco
-    // rumore di fondo: i blocchi più bassi degli ultimi 2 secondi
-    const lv = ring.map((r) => rms(r.c)).sort((a, b) => a - b);
-    const floor = lv.length ? lv[Math.floor(lv.length * 0.2)] : 0.005;
-    const thr = Math.max(0.012, floor * 2.8);
-    return new Promise((resolve) => {
-      const chunks = []; let t = 0, speechBlocks = 0, started = false, quiet = 0, done = false;
-      let voice = 0;   // quanto è forte la tua voce (vicina al microfono)
-      const r = {
-        feed(item) {
-          if (done || item.seq < opt.fromSeq) return;
-          chunks.push(item.c);
-          if (item.seq < opt.vadFromSeq) return;
-          t += BLK;
-          const v = rms(item.c);
-          // la frase finisce quando la tua voce cala: le voci lontane o il rumore del negozio non la tengono aperta
-          const loud = v > Math.max(thr, voice * 0.3);
-          if (loud) {
-            speechBlocks++; quiet = 0; if (speechBlocks >= 2) started = true;
-            voice = voice ? Math.max(voice * 0.97, Math.min(v, voice * 1.5)) : v;
-          } else { quiet += BLK; }
-          if (!started && t >= opt.noSpeechMs) return r.finish(false);
-          if (started && quiet >= opt.silenceMs) return r.finish(false);
-          if (t >= opt.maxMs) return r.finish(false);
-        },
-        finish(cancelled) {
-          if (done) return; done = true;
-          if (recorder === r) recorder = null;
-          resolve({ wav: started && !cancelled ? toWav(chunks) : null, speech: started && !cancelled, cancelled: !!cancelled });
-        },
-      };
-      recorder = r;
-      // sicurezza: se il microfono non manda audio, non resta in attesa per sempre
-      setTimeout(() => r.finish(false), opt.maxMs + 3000);
-      setTimeout(() => { if (!done && !chunks.length) r.finish(false); }, opt.noSpeechMs + 1500);
-      for (const it of ring) r.feed(it);   // l'audio già sentito dopo la parola
-    });
-  };
-  W.cancelRecord = function () { if (recorder) recorder.finish(true); };
-  W.recording = () => !!recorder;
 
   // ---------- strumenti per l'addestramento ----------
   // Registra dal microfono finché non si chiama stop(); level() dà il volume dell'ultimo blocco
