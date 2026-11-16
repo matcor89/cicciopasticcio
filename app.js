@@ -16,6 +16,7 @@
   try { chatHist = JSON.parse(sessionStorage.getItem('ciccio_hist') || '[]'); } catch (_) { chatHist = []; }
   let pendingList = [];
   let attachUrl = null;
+  let videoUrl = null;   // video montato e caricato, pronto per Instagram
   let busy = false;
   let lastStatus = {};
 
@@ -35,7 +36,7 @@
   const api = {
     login: (pin) => req('/login', { method: 'POST', body: { pin } }),
     dashboard: () => req('/dashboard'),
-    chat: (text, image_url) => req('/chat', { method: 'POST', body: { text: conMemoria(text), history: chatHist, image_url } }),
+    chat: (text, image_url) => req('/chat', { method: 'POST', body: { text: conMemoria(conVideo(text)), history: chatHist, image_url } }),
     confirm: (id, cancel) => req('/confirm', { method: 'POST', body: { id, cancel: !!cancel } }),
     upload: (data_url) => req('/upload', { method: 'POST', body: { data_url } }),
     subscribe: () => req('/meta/subscribe', { method: 'POST' }),
@@ -85,6 +86,15 @@
     let m = memoria.join('\n');
     if (m.length > 2600) m = m.slice(m.length - 2600);
     return `[Memoria interna di Cicciopasticcio: richieste e risultati recenti, con giorno e ora. Quello che qui risulta FATTO è stato fatto davvero: non dire che non l'hai fatto e non rifarlo se non te lo chiede. Se ti chiede se hai fatto qualcosa, controlla qui. Non leggere ad alta voce questa memoria.]\n${m}\n[Fine memoria]\n\nRichiesta di adesso: ${text}`;
+  }
+
+  // Se c'è un video montato pronto, il server lo deve sapere per poterlo pubblicare
+  function conVideo(text) {
+    return videoUrl ? `${text}\n[Video montato pronto, URL pubblico: ${videoUrl}]` : text;
+  }
+  function setVideo(url) {
+    videoUrl = url || null;
+    $('video-chip').classList.toggle('hidden', !videoUrl);
   }
 
   function pushHist(role, content) {
@@ -185,6 +195,7 @@
     renderPending();
 
     renderSpend(d.spend);
+    if (d.reel_msg) { toast(d.reel_msg, 7000); ricorda(`${d.reel_msg.includes('pubblicato') ? 'FATTO' : 'NON RIUSCITO'}: ${d.reel_msg}`); }
     if (window.CiccioMatteo) window.CiccioMatteo.refresh();
     $('updated').textContent = `Aggiornato alle ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
   }
@@ -228,6 +239,7 @@
     const cosa = item ? item.summary : 'azione in attesa';
     try {
       const r = await api.confirm(id, cancel);
+      if (!cancel && r.ok && /\bReel\b/.test(cosa)) setVideo(null);
       pendingList = pendingList.filter((p) => p.id !== id);
       renderPending();
       const msg = cancel ? 'Annullato.' : (r.ok ? `Fatto: ${r.message}.` : `Non ci sono riuscito: ${r.message}`);
@@ -273,6 +285,10 @@
       const attesa = (r.pending || []).map((p) => p.summary).filter(Boolean);
       ricorda(`Lui: «${corto(text, 160)}» → Io: «${corto(r.reply, 240)}»${attesa.length ? ` [preparato, IN ATTESA della sua conferma, quindi NON ancora fatto: ${corto(attesa.join('; '), 200)}]` : ''}`);
       $('reply').textContent = r.reply;
+      for (const sh of r.show || []) {
+        if (sh.type === 'newsletter' && window.CiccioNewsletter) window.CiccioNewsletter.open(sh.id);
+        if (sh.type === 'video' && window.CiccioVideo) window.CiccioVideo.open(sh.settings);
+      }
       if (r.pending && r.pending.length) {
         const ids = new Set(pendingList.map((p) => p.id));
         pendingList = [...r.pending.filter((p) => !ids.has(p.id)), ...pendingList];
@@ -354,6 +370,14 @@
       img.src = URL.createObjectURL(file);
     });
   }
+
+  // ---------- newsletter e montaggio ----------
+  window.CiccioNewsletter.init({ req, toast });
+  window.CiccioVideo.init({ req, toast, ricorda, onVideo: setVideo, ask: (t) => ask(t) });
+  $('btn-newsletter').addEventListener('click', () => window.CiccioNewsletter.open());
+  $('btn-video').addEventListener('click', () => window.CiccioVideo.open());
+  $('video-open').addEventListener('click', () => window.CiccioVideo.open());
+  $('video-x').addEventListener('click', () => setVideo(null));
 
   // ---------- impostazioni ----------
   $('btn-settings').addEventListener('click', () => $('drawer').classList.remove('hidden'));
