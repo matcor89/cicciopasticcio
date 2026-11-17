@@ -9,12 +9,14 @@
   const sec = (n) => `${(Math.round(n * 10) / 10).toLocaleString('it-IT')} s`;
 
   const DEF = { titolo: '', sottotitolo: '', sito: 'dandy-abbigliamento.com', durata_sec: 20, formato: 'reel', logo: true, chiusura: true, audio_originale: true, transizioni: true, hq: false,
-    scritta_durata: 'inizio', scritta_posizione: 'basso', scritta_colore: '#F2F6FF', scritta_grandezza: 'media' };
+    scritta_durata: 'inizio', scritta_posizione: 'basso', scritta_colore: '#F2F6FF', scritta_grandezza: 'media', sottotitolo_grandezza: 'media' };
   // colori detti a voce → codice colore
   const COLORI = { bianco: '#FFFFFF', nero: '#111111', oro: '#D4AF37', dorato: '#D4AF37', giallo: '#FFD23F', rosso: '#E53935', blu: '#2F6FED', azzurro: '#7FC4FF',
     verde: '#3CB371', rosa: '#F48FB1', arancione: '#FF8C2B', viola: '#9C6ADE', grigio: '#B8BEC9', beige: '#E8D9BF', crema: '#F5EBDD', marrone: '#8B5A2B' };
   const colore = (c) => { const t = String(c || '').trim().toLowerCase(); if (COLORI[t]) return COLORI[t]; return /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(t) ? t : DEF.scritta_colore; };
   const GRANDEZZA = { piccola: 0.72, media: 1, grande: 1.3 };
+  // sottotitolo: quota della larghezza del video (prima era sempre 0.042, ora «piccola»)
+  const SOTTO = { piccola: 0.042, media: 0.055, grande: 0.07, 'molto grande': 0.088 };
   const FORMATS = { reel: ['Reel 9:16', 9, 16], post: ['Post 4:5', 4, 5], quadrato: ['Quadrato 1:1', 1, 1] };
   const FADE = 0.3, CLOSING = 2.5, TITLE_T = 3.4, IMG_DUR = 3;
   const MAX_UPLOAD = 48 * 1024 * 1024;
@@ -52,7 +54,10 @@
         <div class="vd-col">
           <h3>IMPOSTAZIONI</h3>
           <label class="vd-f">Scritta iniziale<input type="text" id="vd-titolo" maxlength="60" placeholder="es. Nuovi arrivi"></label>
-          <label class="vd-f">Sottotitolo<input type="text" id="vd-sotto" maxlength="80" placeholder="es. Autunno-inverno 2026"></label>
+          <div class="vd-row2">
+            <label class="vd-f">Sottotitolo<input type="text" id="vd-sotto" maxlength="80" placeholder="es. Autunno-inverno 2026"></label>
+            <label class="vd-f">Grandezza sottotitolo<select id="vd-ssgr"><option value="piccola">Piccola</option><option value="media">Media</option><option value="grande">Grande</option><option value="molto grande">Molto grande</option></select></label>
+          </div>
           <div class="vd-row2">
             <label class="vd-f">La scritta resta<select id="vd-sdur"><option value="inizio">Solo all'inizio</option><option value="tutto">Per tutto il video</option></select></label>
             <label class="vd-f">Posizione<select id="vd-spos"><option value="alto">In alto</option><option value="centro">Al centro</option><option value="basso">In basso</option></select></label>
@@ -125,7 +130,7 @@
     $('vd-formato').addEventListener('change', (e) => { opts.formato = e.target.value; invalidate(); preview(); });
     bind('vd-logo', 'logo', 'check'); bind('vd-chiusura', 'chiusura', 'check'); bind('vd-audio', 'audio_originale', 'check');
     bind('vd-trans', 'transizioni', 'check'); bind('vd-hq', 'hq', 'check');
-    for (const [id, key] of [['vd-sdur', 'scritta_durata'], ['vd-spos', 'scritta_posizione'], ['vd-sgr', 'scritta_grandezza'], ['vd-scol', 'scritta_colore']]) {
+    for (const [id, key] of [['vd-sdur', 'scritta_durata'], ['vd-spos', 'scritta_posizione'], ['vd-sgr', 'scritta_grandezza'], ['vd-ssgr', 'sottotitolo_grandezza'], ['vd-scol', 'scritta_colore']]) {
       $(id).addEventListener(id === 'vd-scol' ? 'input' : 'change', (e) => { opts[key] = e.target.value; invalidate(); preview(); });
     }
     $('vd-go').addEventListener('click', () => { if (!rendering) render(); });
@@ -146,7 +151,7 @@
     $('vd-logo').checked = opts.logo; $('vd-chiusura').checked = opts.chiusura; $('vd-audio').checked = opts.audio_originale;
     $('vd-trans').checked = opts.transizioni; $('vd-hq').checked = opts.hq;
     $('vd-sdur').value = opts.scritta_durata; $('vd-spos').value = opts.scritta_posizione;
-    $('vd-sgr').value = opts.scritta_grandezza; $('vd-scol').value = toHex6(opts.scritta_colore);
+    $('vd-sgr').value = opts.scritta_grandezza; $('vd-ssgr').value = SOTTO[opts.sottotitolo_grandezza] ? opts.sottotitolo_grandezza : 'media'; $('vd-scol').value = toHex6(opts.scritta_colore);
   }
 
   function renderItems() {
@@ -341,9 +346,20 @@
       tLines = [opts.titolo];
       if (tSize < W * 0.07 * k) { tSize = Math.round(W * 0.075 * k); ctx.font = `500 ${tSize}px "Bodoni Moda", Didot, Georgia, serif`; tLines = wrap(ctx, opts.titolo, maxW); }
     }
-    if (opts.sottotitolo) sSize = fitFont(ctx, opts.sottotitolo, 'Inter, system-ui, sans-serif', 500, Math.round(W * 0.042 * k), maxW);
-    const lh = tSize * 1.12;
-    const blockH = (tLines.length ? tLines.length * lh : 0) + (sSize ? sSize * 1.6 : 0);
+    let sLines = [];
+    if (opts.sottotitolo) {
+      // il sottotitolo ha la sua grandezza; se è lungo va su due righe invece di rimpicciolirsi
+      sSize = Math.round(W * (SOTTO[opts.sottotitolo_grandezza] || SOTTO.media));
+      ctx.font = `500 ${sSize}px Inter, system-ui, sans-serif`;
+      sLines = wrap(ctx, opts.sottotitolo, maxW).slice(0, 2);
+      if (sLines.join(' ').length < opts.sottotitolo.length || sLines.some((l) => ctx.measureText(l).width > maxW)) {
+        sSize = fitFont(ctx, opts.sottotitolo, 'Inter, system-ui, sans-serif', 500, sSize, maxW * 2);
+        ctx.font = `500 ${sSize}px Inter, system-ui, sans-serif`;
+        sLines = wrap(ctx, opts.sottotitolo, maxW).slice(0, 2);
+      }
+    }
+    const lh = tSize * 1.12, slh = sSize * 1.25;
+    const blockH = (tLines.length ? tLines.length * lh : 0) + (sLines.length ? sLines.length * slh + sSize * 0.35 : 0);
     const top = pos === 'alto' ? H * 0.1 + (opts.logo ? W * 0.12 : 0)
       : pos === 'centro' ? (H - blockH) / 2
       : H * (opts.formato === 'reel' ? 0.79 : 0.83) - blockH;
@@ -353,10 +369,11 @@
       ctx.fillStyle = col;
       for (const l of tLines) { y += lh; ctx.fillText(l, W / 2, y - lh * 0.18); }
     }
-    if (sSize) {
+    if (sLines.length) {
       ctx.font = `500 ${sSize}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = col; ctx.globalAlpha = alpha * 0.85;
-      ctx.fillText(opts.sottotitolo, W / 2, y + sSize * 1.25);
+      ctx.fillStyle = col; ctx.globalAlpha = alpha * 0.9;
+      y += sSize * 0.35;
+      for (const l of sLines) { y += slh; ctx.fillText(l, W / 2, y - slh * 0.2); }
     }
     ctx.restore();
   }
