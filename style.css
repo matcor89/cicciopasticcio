@@ -296,6 +296,7 @@ a.mini-btn { display: inline-flex; align-items: center; justify-content: center;
 .vd-f input[type=text], .vd-f input[type=number], .vd-f select { height: 38px; border-radius: 10px; border: 1px solid var(--line-2); background: #0B1C42; color: var(--text); padding: 0 10px; font: 400 14px Inter, system-ui, sans-serif; }
 .vd-f input[type=range] { accent-color: var(--accent); }
 .vd-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.vd-color { height: 38px; width: 100%; border-radius: 10px; border: 1px solid var(--line-2); background: #0B1C42; padding: 3px; cursor: pointer; }
 .vd-col .toggle { padding: 8px 12px; font-size: 13.5px; }
 .vd-mrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13.5px; }
 .vd-out { display: flex; gap: 20px; align-items: flex-start; border-top: 1px solid var(--line); padding-top: 14px; }

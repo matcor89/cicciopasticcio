@@ -8,7 +8,13 @@
   const num = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : null; };
   const sec = (n) => `${(Math.round(n * 10) / 10).toLocaleString('it-IT')} s`;
 
-  const DEF = { titolo: '', sottotitolo: '', sito: 'dandy-abbigliamento.com', durata_sec: 20, formato: 'reel', logo: true, chiusura: true, audio_originale: true, transizioni: true, hq: false };
+  const DEF = { titolo: '', sottotitolo: '', sito: 'dandy-abbigliamento.com', durata_sec: 20, formato: 'reel', logo: true, chiusura: true, audio_originale: true, transizioni: true, hq: false,
+    scritta_durata: 'inizio', scritta_posizione: 'basso', scritta_colore: '#F2F6FF', scritta_grandezza: 'media' };
+  // colori detti a voce → codice colore
+  const COLORI = { bianco: '#FFFFFF', nero: '#111111', oro: '#D4AF37', dorato: '#D4AF37', giallo: '#FFD23F', rosso: '#E53935', blu: '#2F6FED', azzurro: '#7FC4FF',
+    verde: '#3CB371', rosa: '#F48FB1', arancione: '#FF8C2B', viola: '#9C6ADE', grigio: '#B8BEC9', beige: '#E8D9BF', crema: '#F5EBDD', marrone: '#8B5A2B' };
+  const colore = (c) => { const t = String(c || '').trim().toLowerCase(); if (COLORI[t]) return COLORI[t]; return /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(t) ? t : DEF.scritta_colore; };
+  const GRANDEZZA = { piccola: 0.72, media: 1, grande: 1.3 };
   const FORMATS = { reel: ['Reel 9:16', 9, 16], post: ['Post 4:5', 4, 5], quadrato: ['Quadrato 1:1', 1, 1] };
   const FADE = 0.3, CLOSING = 2.5, TITLE_T = 3.4, IMG_DUR = 3;
   const MAX_UPLOAD = 48 * 1024 * 1024;
@@ -47,6 +53,14 @@
           <h3>IMPOSTAZIONI</h3>
           <label class="vd-f">Scritta iniziale<input type="text" id="vd-titolo" maxlength="60" placeholder="es. Nuovi arrivi"></label>
           <label class="vd-f">Sottotitolo<input type="text" id="vd-sotto" maxlength="80" placeholder="es. Autunno-inverno 2026"></label>
+          <div class="vd-row2">
+            <label class="vd-f">La scritta resta<select id="vd-sdur"><option value="inizio">Solo all'inizio</option><option value="tutto">Per tutto il video</option></select></label>
+            <label class="vd-f">Posizione<select id="vd-spos"><option value="alto">In alto</option><option value="centro">Al centro</option><option value="basso">In basso</option></select></label>
+          </div>
+          <div class="vd-row2">
+            <label class="vd-f">Grandezza<select id="vd-sgr"><option value="piccola">Piccola</option><option value="media">Media</option><option value="grande">Grande</option></select></label>
+            <label class="vd-f">Colore<input type="color" id="vd-scol" class="vd-color"></label>
+          </div>
           <div class="vd-row2">
             <label class="vd-f">Formato<select id="vd-formato">${Object.entries(FORMATS).map(([k, v]) => `<option value="${k}">${v[0]}</option>`).join('')}</select></label>
             <label class="vd-f">Durata (s)<input type="number" id="vd-durata" min="5" max="90" step="1"></label>
@@ -111,6 +125,9 @@
     $('vd-formato').addEventListener('change', (e) => { opts.formato = e.target.value; invalidate(); preview(); });
     bind('vd-logo', 'logo', 'check'); bind('vd-chiusura', 'chiusura', 'check'); bind('vd-audio', 'audio_originale', 'check');
     bind('vd-trans', 'transizioni', 'check'); bind('vd-hq', 'hq', 'check');
+    for (const [id, key] of [['vd-sdur', 'scritta_durata'], ['vd-spos', 'scritta_posizione'], ['vd-sgr', 'scritta_grandezza'], ['vd-scol', 'scritta_colore']]) {
+      $(id).addEventListener(id === 'vd-scol' ? 'input' : 'change', (e) => { opts[key] = e.target.value; invalidate(); preview(); });
+    }
     $('vd-go').addEventListener('click', () => { if (!rendering) render(); });
     $('vd-stop').addEventListener('click', () => { abortFlag = true; });
     $('vd-ig').addEventListener('click', () => {
@@ -128,6 +145,8 @@
     $('vd-formato').value = opts.formato; $('vd-durata').value = opts.durata_sec;
     $('vd-logo').checked = opts.logo; $('vd-chiusura').checked = opts.chiusura; $('vd-audio').checked = opts.audio_originale;
     $('vd-trans').checked = opts.transizioni; $('vd-hq').checked = opts.hq;
+    $('vd-sdur').value = opts.scritta_durata; $('vd-spos').value = opts.scritta_posizione;
+    $('vd-sgr').value = opts.scritta_grandezza; $('vd-scol').value = toHex6(opts.scritta_colore);
   }
 
   function renderItems() {
@@ -282,32 +301,62 @@
     return lines.slice(0, 3);
   }
 
+  const toHex6 = (c) => { const h = colore(c); return h.length === 4 ? `#${h[1]}${h[1]}${h[2]}${h[2]}${h[3]}${h[3]}` : h; };
+  // la scritta chiara ha l'ombra scura dietro, quella scura un alone chiaro: si legge su qualsiasi immagine
+  function isDark(hex) {
+    const h = toHex6(hex).slice(1);
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+    return 0.299 * r + 0.587 * g + 0.114 * b < 110;
+  }
+
   function drawTitle(ctx, W, H, alpha) {
     if (!opts.titolo && !opts.sottotitolo) return;
+    const pos = ['alto', 'centro', 'basso'].includes(opts.scritta_posizione) ? opts.scritta_posizione : 'basso';
+    const k = GRANDEZZA[opts.scritta_grandezza] || 1;
+    const col = colore(opts.scritta_colore), dark = isDark(col);
     ctx.save();
     ctx.globalAlpha = alpha;
-    const g = ctx.createLinearGradient(0, H * 0.55, 0, H);
-    g.addColorStop(0, 'rgba(7,18,43,0)'); g.addColorStop(0.45, 'rgba(7,18,43,.55)'); g.addColorStop(1, 'rgba(7,18,43,.75)');
-    ctx.fillStyle = g; ctx.fillRect(0, H * 0.55, W, H * 0.45);
-    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = W * 0.02;
-    let y = H * (opts.formato === 'reel' ? 0.76 : 0.8);
-    if (opts.titolo) {
-      const maxW = W * 0.86;
-      let size = fitFont(ctx, opts.titolo, '"Bodoni Moda", Didot, Georgia, serif', 500, Math.round(W * 0.1), maxW);
-      let lines = [opts.titolo];
-      if (size < W * 0.07) { size = Math.round(W * 0.075); ctx.font = `500 ${size}px "Bodoni Moda", Didot, Georgia, serif`; lines = wrap(ctx, opts.titolo, maxW); }
-      ctx.fillStyle = '#F2F6FF';
-      const lh = size * 1.12;
-      y -= (lines.length - 1) * lh;
-      for (const l of lines) { ctx.fillText(l, W / 2, y); y += lh; }
-      y -= lh * 0.35;
+    // velo dietro la scritta, dalla parte dove sta
+    const tint = dark ? '245,240,232' : '7,18,43';
+    if (pos === 'basso') {
+      const g = ctx.createLinearGradient(0, H * 0.55, 0, H);
+      g.addColorStop(0, `rgba(${tint},0)`); g.addColorStop(0.45, `rgba(${tint},.55)`); g.addColorStop(1, `rgba(${tint},.75)`);
+      ctx.fillStyle = g; ctx.fillRect(0, H * 0.55, W, H * 0.45);
+    } else if (pos === 'alto') {
+      const g = ctx.createLinearGradient(0, 0, 0, H * 0.42);
+      g.addColorStop(0, `rgba(${tint},.7)`); g.addColorStop(0.6, `rgba(${tint},.4)`); g.addColorStop(1, `rgba(${tint},0)`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H * 0.42);
+    } else {
+      const g = ctx.createLinearGradient(0, H * 0.32, 0, H * 0.68);
+      g.addColorStop(0, `rgba(${tint},0)`); g.addColorStop(0.5, `rgba(${tint},.45)`); g.addColorStop(1, `rgba(${tint},0)`);
+      ctx.fillStyle = g; ctx.fillRect(0, H * 0.32, W, H * 0.36);
     }
-    if (opts.sottotitolo) {
-      const size = fitFont(ctx, opts.sottotitolo, 'Inter, system-ui, sans-serif', 500, Math.round(W * 0.042), W * 0.86);
-      ctx.font = `500 ${size}px Inter, system-ui, sans-serif`;
-      ctx.fillStyle = '#C9D8F5';
-      ctx.fillText(opts.sottotitolo, W / 2, y + size * 0.4);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.shadowColor = dark ? 'rgba(255,255,255,.55)' : 'rgba(0,0,0,.45)'; ctx.shadowBlur = W * 0.02;
+    const maxW = W * 0.86;
+    // prima misuro il blocco (titolo + sottotitolo), poi lo metto in alto, al centro o in basso
+    let tSize = 0, tLines = [], sSize = 0;
+    if (opts.titolo) {
+      tSize = fitFont(ctx, opts.titolo, '"Bodoni Moda", Didot, Georgia, serif', 500, Math.round(W * 0.1 * k), maxW);
+      tLines = [opts.titolo];
+      if (tSize < W * 0.07 * k) { tSize = Math.round(W * 0.075 * k); ctx.font = `500 ${tSize}px "Bodoni Moda", Didot, Georgia, serif`; tLines = wrap(ctx, opts.titolo, maxW); }
+    }
+    if (opts.sottotitolo) sSize = fitFont(ctx, opts.sottotitolo, 'Inter, system-ui, sans-serif', 500, Math.round(W * 0.042 * k), maxW);
+    const lh = tSize * 1.12;
+    const blockH = (tLines.length ? tLines.length * lh : 0) + (sSize ? sSize * 1.6 : 0);
+    const top = pos === 'alto' ? H * 0.1 + (opts.logo ? W * 0.12 : 0)
+      : pos === 'centro' ? (H - blockH) / 2
+      : H * (opts.formato === 'reel' ? 0.79 : 0.83) - blockH;
+    let y = top;
+    if (tLines.length) {
+      ctx.font = `500 ${tSize}px "Bodoni Moda", Didot, Georgia, serif`;
+      ctx.fillStyle = col;
+      for (const l of tLines) { y += lh; ctx.fillText(l, W / 2, y - lh * 0.18); }
+    }
+    if (sSize) {
+      ctx.font = `500 ${sSize}px Inter, system-ui, sans-serif`;
+      ctx.fillStyle = col; ctx.globalAlpha = alpha * 0.85;
+      ctx.fillText(opts.sottotitolo, W / 2, y + sSize * 1.25);
     }
     ctx.restore();
   }
@@ -351,7 +400,8 @@
     if (s.it.kind === 'video') cover(ctx, cur.v, cur.v.videoWidth, cur.v.videoHeight, W, H, 1);
     else cover(ctx, s.it.img, s.it.img.naturalWidth, s.it.img.naturalHeight, W, H, 1 + 0.08 * clamp(local / s.dur, 0, 1));
     ctx.restore();
-    if (tl < TITLE_T) drawTitle(ctx, W, H, Math.min(clamp(tl / 0.4, 0, 1), clamp((TITLE_T - tl) / 0.4, 0, 1)));
+    if (opts.scritta_durata === 'tutto') drawTitle(ctx, W, H, clamp(tl / 0.4, 0, 1));
+    else if (tl < TITLE_T) drawTitle(ctx, W, H, Math.min(clamp(tl / 0.4, 0, 1), clamp((TITLE_T - tl) / 0.4, 0, 1)));
     drawLogo(ctx, W);
   }
 
@@ -563,15 +613,25 @@
   // ---------- apertura ----------
   function open(settings) {
     build();
+    const hadVideo = !!result;
+    let changed = false;
+    if (settings && !rendering && settings.nuovo) {
+      // video nuovo: si riparte dalle impostazioni normali (le clip già scelte restano, si possono togliere)
+      for (const k of Object.keys(DEF)) if (k !== 'hq' && opts[k] !== DEF[k]) { opts[k] = DEF[k]; changed = true; }
+    }
     if (settings && !rendering) {
-      for (const k of Object.keys(DEF)) if (settings[k] !== undefined && k !== 'hq') opts[k] = settings[k];
+      // cambia solo quello che hai chiesto: il resto (scritta, durata, clip…) resta com'era
+      for (const k of Object.keys(DEF)) if (settings[k] !== undefined && k !== 'hq' && settings[k] !== opts[k]) { opts[k] = settings[k]; changed = true; }
       opts.durata_sec = clamp(Number(opts.durata_sec) || DEF.durata_sec, 5, 90);
       if (!FORMATS[opts.formato]) opts.formato = 'reel';
+      opts.scritta_colore = colore(opts.scritta_colore);
     }
     fillForm(); renderItems(); renderMusic();
-    if (!result) preview();
-    if (settings) invalidate();
+    if (changed) invalidate();
+    preview();
     document.getElementById('vd').classList.remove('hidden');
+    // se il video era già montato e chiedi una modifica a voce, lo rimonta da solo con le clip già scelte
+    if (changed && hadVideo && !settings.nuovo && items.length && !rendering) setTimeout(() => { if (!rendering) render(); }, 400);
   }
   function close() { const o = document.getElementById('vd'); if (o) o.classList.add('hidden'); }
 
