@@ -282,7 +282,9 @@
   });
 
   // ---------- conversazione ----------
-  const CONFIRM_RE = /^(s[iì],?\s*)?(conferm[ao]|confermo|procedi|vai pure|vai|ok procedi|invia(lo)?|pubblica(lo)?)\.?$/i;
+  // con una richiesta in attesa bastano anche «sì», «ok», «va bene», «fallo», «certo»
+  const CONFIRM_RE = /^(s[iì]|ok|okay|certo|esatto|perfetto|va bene)?[,.!]?\s*(conferm[ao]|confermo|procedi|vai pure|vai|fallo|fai pure|ok procedi|invia(lo)?|mandal[oa]|pubblica(lo)?)?[.!]?$/i;
+  const isConfirm = (t) => { const x = t.trim(); return !!x && CONFIRM_RE.test(x) && /\S/.test(x.replace(/[,.!]/g, '')); };
   const CANCEL_RE = /^(no,?\s*)?(annulla|lascia stare|non (farlo|inviare))\.?$/i;
   const STOP_RE = /^(stop|basta|zitto|silenzio|fermati)\.?$/i;
 
@@ -290,7 +292,7 @@
     text = (text || '').trim();
     if (!text || busy) return;
     if (STOP_RE.test(text)) { V.stopSpeaking(); setState('idle'); return; }
-    if (pendingList.length && CONFIRM_RE.test(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, false, byVoice); }
+    if (pendingList.length && isConfirm(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, false, byVoice); }
     if (pendingList.length && CANCEL_RE.test(text)) { $('said').textContent = `«${text}»`; return doConfirm(pendingList[0].id, true, byVoice); }
 
     busy = true;
