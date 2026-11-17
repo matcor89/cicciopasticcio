@@ -195,6 +195,15 @@
     renderPending();
 
     renderSpend(d.spend);
+    const aj = d.ads_jobs || {};
+    for (const m of aj.messages || []) {
+      toast(m, 9000);
+      ricorda(m.startsWith('Fatto') ? `FATTO: ${corto(m, 220)}` : `NON RIUSCITO: ${corto(m, 220)}`);
+      $('reply').textContent = m;
+      pushHist('assistant', m);
+      if (V.voiceEnabled && !busy && !V.speaking && !V.sleeping && V.mode !== 'command') V.speak(m);
+    }
+    if (aj.running) scheduleAdsCheck();
     if (d.reel_msg) { toast(d.reel_msg, 7000); ricorda(`${d.reel_msg.includes('pubblicato') ? 'FATTO' : 'NON RIUSCITO'}: ${d.reel_msg}`); }
     if (window.CiccioMatteo) window.CiccioMatteo.refresh();
     $('updated').textContent = `Aggiornato alle ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
@@ -224,6 +233,12 @@
     $('spend-detail').textContent = `${euro(s.month_eur)} spesi su ${euro(s.budget_eur)} questo mese (${s.requests} richieste).`;
   }
 
+  // Mentre una campagna Meta è in lavorazione controlla ogni 20 secondi, così ti avvisa appena è pronta
+  function scheduleAdsCheck() {
+    clearTimeout(scheduleAdsCheck._t);
+    scheduleAdsCheck._t = setTimeout(refresh, 20000);
+  }
+
   async function refresh() {
     try { render(await api.dashboard()); } catch (e) { if (token) $('updated').textContent = `Non riesco ad aggiornare: ${e.message}`; }
   }
@@ -247,7 +262,13 @@
       $('reply').textContent = msg;
       pushHist('assistant', msg);
       setTimeout(refresh, 1500);
-      if (!cancel) await V.speak(r.ok ? 'Fatto.' : msg);
+      if (!cancel && r.ok && r.queued) {
+        // la campagna Meta si crea a passi: lo dice e poi controlla più spesso finché non è pronta
+        $('reply').textContent = r.message;
+        ricorda(`IN LAVORAZIONE (confermato da lui, non ancora finito): ${corto(cosa, 200)}`);
+        scheduleAdsCheck();
+        await V.speak(`${r.message}.`);
+      } else if (!cancel) await V.speak(r.ok ? 'Fatto.' : msg);
       if (byVoice) V.followUp();
     } catch (e) {
       ricorda(`Conferma di «${corto(cosa, 160)}»: errore di collegamento, non è sicuro se è stata eseguita (va controllato)`);

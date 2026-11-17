@@ -37,6 +37,7 @@
   };
 
   let rec = null, running = false, wantRunning = false, cmdTimer = null, restartDelay = 300, lastError = '';
+  let seenResults = 0, lastResults = null;   // quanti pezzi ha già mandato Chrome in questo giro di ascolto
   let sleepCheckUntil = 0, sleepTimer = null;
   try { V.sleeping = localStorage.getItem('ciccio_dorme') === '1'; } catch (_) { /* ignore */ }
   function saveSleep() { try { localStorage.setItem('ciccio_dorme', V.sleeping ? '1' : '0'); } catch (_) { /* ignore */ } }
@@ -56,6 +57,7 @@
     rec.maxAlternatives = 1;
 
     rec.onresult = (ev) => {
+      seenResults = ev.results.length; lastResults = ev.results;
       if (V.speaking) return;
       if (V.sleeping) return onSleepingResult(ev);
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
@@ -69,8 +71,8 @@
             if (res.isFinal) {
               if (isSleepCmd(after)) { V.sleep(); return; }
               // ha già iniziato la domanda: la ascolta fino in fondo (non si ferma al primo pezzo)
-              if (after.split(/\s+/).filter(Boolean).length >= 2) { startCommandWindow(null, 0, after); }
-              else { startCommandWindow(); }
+              if (after.split(/\s+/).filter(Boolean).length >= 2) { startCommandWindow(null, 0, null, i); }
+              else { startCommandWindow(null, undefined, null, i + 1); }
             } else if (V.onInterim && after) {
               V.onInterim(after);
             }
@@ -79,14 +81,7 @@
             V._pendingWake = false;
           }
         } else if (V.mode === 'command') {
-          // la frase arriva a pezzi: li mette insieme e aspetta che tu abbia finito di parlare
-          let fin = '', interim = '';
-          for (let j = i; j < ev.results.length; j++) {
-            const r = ev.results[j];
-            const clean = norm(r[0].transcript.replace(WAKE_RE, ' '));
-            if (r.isFinal) fin = norm(`${fin} ${clean}`); else interim = norm(`${interim} ${clean}`);
-          }
-          onCommandPiece(fin, interim);
+          onSessionResults(ev.results);
           return;
         }
       }
@@ -107,12 +102,20 @@
 
     rec.onend = () => {
       running = false;
+      // Chrome a volte chiude l'ascolto a metà di una frase lunga: tengo quello che hai già detto
+      // (anche l'ultimo pezzo non ancora definitivo) e riparto subito, senza pause
+      if (V.mode === 'command') {
+        commitSession();
+        if (wantRunning && !V.speaking) { setTimeout(() => { if (wantRunning && !running && !V.speaking) start(); }, lastError === 'network' ? 1000 : 60); }
+        lastError = '';
+        return;
+      }
       if (wantRunning && !V.speaking) {
         setTimeout(() => { if (wantRunning && !running && !V.speaking) start(); }, restartDelay);
         restartDelay = Math.min(restartDelay * 1.5, 3000);
       }
     };
-    rec.onstart = () => { running = true; restartDelay = 300; };
+    rec.onstart = () => { running = true; restartDelay = 300; seenResults = 0; lastResults = null; cmdStartIdx = 0; sessFinal = ''; sessInterim = ''; };
   }
 
   function start() {
@@ -129,28 +132,66 @@
   const LW = () => (V.wakeMode === 'local' ? window.CiccioWakeLocal : null);
 
   // ---------- la tua richiesta ----------
-  // Chrome divide le frasi lunghe in pezzi: qui si mettono insieme, e la richiesta parte solo
-  // quando smetti di parlare (pausa di circa un secondo e mezzo), non al primo pezzo.
-  const SILENCE_MS = 1400;          // pausa dopo l'ultimo pezzo già scritto
-  const SILENCE_INTERIM_MS = 2000;  // pausa se Chrome sta ancora scrivendo l'ultimo pezzo
-  const MAX_MS = 30000;             // durata massima di una richiesta
-  let cmdFinal = '', cmdInterim = '', silenceTimer = null, maxTimer = null;
-  const cmdText = () => norm(`${cmdFinal} ${cmdInterim}`);
+  // Chrome divide le frasi lunghe in pezzi e ogni tanto chiude e riapre l'ascolto: qui si rimette insieme
+  // tutto quello che hai detto e la richiesta parte solo quando hai finito di parlare, non al primo pezzo.
+  // Più la frase è lunga, più pazienza ha con le pause per prendere fiato.
+  const MAX_MS = 180000;            // durata massima di una richiesta: 3 minuti
+  let cmdPrev = '';                 // detto nei giri di ascolto precedenti (Chrome si è riavviato)
+  let sessFinal = '', sessInterim = '', cmdStartIdx = 0;
+  let silenceTimer = null, maxTimer = null;
+  const cmdText = () => norm(`${cmdPrev} ${sessFinal} ${sessInterim}`);
+  const wordCount = (t) => (t.match(/\S+/g) || []).length;
+  function silenceMs(t, interim) {
+    const n = wordCount(t);
+    const base = n < 8 ? 1400 : n < 25 ? 1800 : 2300;
+    return interim ? base + 600 : base;
+  }
 
-  function onCommandPiece(finalPiece, interim) {
-    if (finalPiece) cmdFinal = norm(`${cmdFinal} ${finalPiece}`);
-    cmdInterim = interim || '';
+  // Ricostruisce il testo di questo giro dai pezzi di Chrome (dal punto in cui è iniziata la richiesta).
+  // Alcuni telefoni rimandano i pezzi già detti ripetuti per intero: in quel caso non li somma due volte.
+  function joinPieces(list) {
+    let out = '';
+    for (const p of list) {
+      if (!p) continue;
+      const lo = out.toLowerCase(), lp = p.toLowerCase();
+      if (!out) out = p;
+      else if (lp.startsWith(lo)) out = p;
+      else if (lo.endsWith(lp)) continue;
+      else out = `${out} ${p}`;
+    }
+    return norm(out);
+  }
+  function onSessionResults(results) {
+    const fin = [], intr = [];
+    for (let j = cmdStartIdx; j < results.length; j++) {
+      const r = results[j];
+      const raw = r[0].transcript;
+      // nel pezzo in cui hai detto «Hey Cicciopasticcio» conta solo quello che viene dopo
+      const m = j === cmdStartIdx ? raw.match(WAKE_RE) : null;
+      const clean = norm(m ? raw.slice(m.index + m[0].length) : raw.replace(WAKE_RE, ' '));
+      (r.isFinal ? fin : intr).push(clean);
+    }
+    sessFinal = joinPieces(fin);
+    sessInterim = joinPieces(intr);
+    onSpeechProgress();
+  }
+  function commitSession() {
+    const t = norm(`${sessFinal} ${sessInterim}`);
+    if (t) cmdPrev = norm(`${cmdPrev} ${t}`);
+    sessFinal = ''; sessInterim = ''; cmdStartIdx = 0; seenResults = 0;
+  }
+  function onSpeechProgress() {
     const t = cmdText();
     if (!t) return;
     if (V.onInterim) V.onInterim(t);
     clearTimeout(cmdTimer);          // hai iniziato a parlare: non scade più, aspetta che finisci
     clearTimeout(silenceTimer);
-    silenceTimer = setTimeout(endCommand, cmdInterim ? SILENCE_INTERIM_MS : SILENCE_MS);
+    silenceTimer = setTimeout(endCommand, silenceMs(t, !!sessInterim));
   }
 
   function clearCommand() {
     clearTimeout(cmdTimer); clearTimeout(silenceTimer); clearTimeout(maxTimer);
-    cmdFinal = ''; cmdInterim = '';
+    cmdPrev = ''; sessFinal = ''; sessInterim = '';
   }
 
   function endCommand() {
@@ -162,15 +203,17 @@
     finishCommand(t);
   }
 
-  function startCommandWindow(ms, freq, seed) {
+  // fromIdx: da quale pezzo di Chrome inizia la richiesta (quello con la parola, o il successivo)
+  function startCommandWindow(ms, freq, _seed, fromIdx) {
     if (LW()) LW().pause();
     clearCommand();
+    cmdStartIdx = typeof fromIdx === 'number' ? fromIdx : (running ? seenResults : 0);
     setMode('command');
     if (freq !== 0) beep(freq || 880);
     if (V.onWake) V.onWake();
     cmdTimer = setTimeout(endCommand, ms || 8000);   // se non inizi a parlare
     maxTimer = setTimeout(endCommand, MAX_MS);
-    if (seed) onCommandPiece(seed, '');
+    if (typeof fromIdx === 'number' && rec && lastResults && fromIdx < lastResults.length) onSessionResults(lastResults);
   }
 
   // Subito dopo la risposta: ti ascolta qualche secondo senza bisogno di dire di nuovo «Hey Cicciopasticcio»
